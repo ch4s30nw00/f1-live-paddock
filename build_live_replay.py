@@ -61,7 +61,7 @@ def api(path, filters="", **params):
         r = requests.get(url, timeout=30)
         if r.status_code == 429:              # 레이트리밋: 물러났다가 재시도
             wait = (attempt + 1) * 8
-            print(f"    429 레이트리밋 — {wait}초 대기...")
+            print(f"    429 레이트리밋, {wait}초 대기...")
             time.sleep(wait)
             continue
         if r.status_code == 404:              # OpenF1은 결과 0건이면 404를 준다

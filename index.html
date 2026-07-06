@@ -594,8 +594,8 @@
     function exitLive() {
         liveMode = false;
         document.getElementById('player-bar').style.display = '';
-        userPicked = false;          // 세션 종료 → 최신 녹화(방금 세션) 자동 재생
-        loadRecordings();            // 방금 끝난 세션 녹화가 목록에 새로 생겼을 수 있음
+        userPicked = false;          // 세션 종료 → 최신 다시보기 자동 재생
+        loadRecordings();            // 목록 갱신 (방금 세션의 다시보기는 백필 완료 후 추가됨)
     }
 
     function connectWS() {
@@ -611,6 +611,7 @@
                 liveAvailable = !!msg.live;
                 liveSession = msg.session || '';
                 if (msg.live && msg.drivers) liveDriverMeta = msg.drivers;
+                if (!msg.live) loadRecordings();       // 백필로 새 다시보기가 생겼을 수 있음
                 buildDropdown();
                 if (liveAvailable) autoSelect();
                 else if (liveMode) exitLive();

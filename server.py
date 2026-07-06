@@ -1,3 +1,4 @@
+import sys
 import json
 import asyncio
 import sqlite3
@@ -7,6 +8,10 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+# Windows 콘솔(cp949)이 못 찍는 문자가 로그에 섞여도 태스크가 죽지 않게 한다
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
 
 
 app = FastAPI()
@@ -124,7 +129,7 @@ def sync_standings():
         url = "https://api.jolpi.ca/ergast/f1/2026/driverStandings.json"
         response = requests.get(url, timeout=8)
         if response.status_code != 200:
-            print("순위 API 응답 실패 — 기존 데이터 유지")
+            print("순위 API 응답 실패, 기존 데이터 유지")
             return False
 
         data = response.json()
@@ -160,7 +165,7 @@ def sync_standings():
         print("순위 동기화 완료 (Jolpica)")
         return True
     except Exception as e:
-        print(f"순위 동기화 실패: {e} — 기존 데이터 유지")
+        print(f"순위 동기화 실패: {e}, 기존 데이터 유지")
         return False
 
 
@@ -232,7 +237,8 @@ async def get_constructor_standings():
 # ============================================================================
 # 라이브 타이밍 엔진
 #   하나의 백그라운드 태스크가: 세션 자동감지 → 라이브 폴링 → 전체 보드 방송
-#                              → 세션 녹화(최근 3개 보관) → 세션 없으면 폴백 리플레이
+#     → 세션 종료 후 OpenF1 백필로 다시보기 생성(최근 3개 보관)
+#     → 세션 없으면 폴백 리플레이
 # ============================================================================
 import os
 import re
@@ -250,11 +256,21 @@ try:
 except Exception as _e:
     print(f"f1feed 로드 실패(FastF1 미설치?): {_e}")
     FEED = None
+
+# 세션 종료 후 다시보기 백필용
+try:
+    from build_recordings import backfill_race
+except Exception as _e:
+    print(f"build_recordings 로드 실패: {_e}")
+    backfill_race = None
+
 LIVE_POLL_SEC = 3.0             # 라이브일 때 폴링/방송 주기(초)
 IDLE_CHECK_SEC = 20.0          # 유휴(리플레이) 중 라이브 세션 확인 주기(초)
 STALE_SEC = 300.0             # 이만큼 데이터가 끊기면 세션 종료로 판단(연기·연장 흡수)
-MAX_REC_FRAMES = 3000           # 녹화 1개당 프레임 상한(용량 보호)
 KEEP_RECORDINGS = 3             # 보관할 최근 녹화 개수
+BACKFILL_DELAY_SEC = 600        # 세션 종료 후 첫 백필 시도까지 대기(초)
+BACKFILL_RETRY_SEC = 600        # OpenF1에 데이터가 아직 없을 때 재시도 간격(초)
+BACKFILL_MAX_TRIES = 12         # 재시도 상한 — 약 2시간 기다려도 없으면 포기
 
 os.makedirs(REC_DIR, exist_ok=True)
 
@@ -417,34 +433,35 @@ def _build_live_board(sk, drivers):
     return cars, fresh
 
 
-# --- 녹화(최근 3경기 다시보기) ----------------------------------------------
-_rec = {"sk": None, "buf": None}
+# --- 다시보기 백필 (라이브 녹화 대체) -----------------------------------------
+# 라이브 중 방송 프레임을 그대로 저장하는 방식은 제거했다. 인증 없는 공식
+# 피드는 순위 외 데이터(인터벌·텔레메트리)가 빠질 수 있어 녹화 품질이 낮고,
+# 세션이 끝나면 OpenF1에 풀 데이터가 올라오므로 종료 후 내려받는 쪽이 항상
+# 품질이 좋다. 데이터가 올라올 때까지 일정 간격으로 재시도한다.
+_replay_refresh = {"flag": False}   # 백필 완료 → 엔진이 최신 다시보기를 다시 고르게 함
 
-def _safe(s):
-    return "".join(ch if ch.isalnum() else "_" for ch in s)[:40]
-
-def _rec_append(sk, name, drivers, cars):
-    if _rec["sk"] != sk:
-        _rec_save()   # 세션이 바뀌면 이전 녹화부터 저장
-        _rec["sk"] = sk
-        _rec["buf"] = {"session": name, "session_key": sk, "recorded": True,
-                       "step": LIVE_POLL_SEC, "drivers": drivers, "frames": []}
-    frames = _rec["buf"]["frames"]
-    frames.append({"cars": cars})
-    if len(frames) > MAX_REC_FRAMES:
-        del frames[0:len(frames) - MAX_REC_FRAMES]
-
-def _rec_save():
-    b = _rec.get("buf")
-    if not b or not b["frames"]:
+async def _backfill_after_session(session_key, name):
+    """세션 종료 후 OpenF1 과거 데이터로 다시보기 파일을 만든다(본선 레이스만)."""
+    if backfill_race is None or not session_key:
         return
-    path = os.path.join(REC_DIR, f"{b['session_key']}_{_safe(b['session'])}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(b, f, ensure_ascii=False)
-    print(f"녹화 저장: {path} ({len(b['frames'])} 프레임)")
-    _prune_recordings()
-    _rec["buf"] = None
-    _rec["sk"] = None
+    if "race" not in name.lower():      # 다시보기 슬롯은 본선 레이스만 채운다
+        return
+    label = name.split("·")[0].strip() or str(session_key)
+    print(f"백필 예약: {label} (key {session_key}), OpenF1 데이터 대기")
+    await asyncio.sleep(BACKFILL_DELAY_SEC)
+    for attempt in range(1, BACKFILL_MAX_TRIES + 1):
+        try:
+            path = await asyncio.to_thread(backfill_race, session_key, label)
+        except Exception as e:
+            print(f"백필 시도 {attempt}/{BACKFILL_MAX_TRIES} 실패: {e}")
+            path = None
+        if path:
+            print(f"백필 완료: {path}")
+            _prune_recordings()
+            _replay_refresh["flag"] = True
+            return
+        await asyncio.sleep(BACKFILL_RETRY_SEC)
+    print(f"백필 포기 (key {session_key}): OpenF1에 데이터가 올라오지 않음")
 
 def _prune_recordings():
     files = [os.path.join(REC_DIR, f) for f in os.listdir(REC_DIR) if f.endswith(".json")]
@@ -485,10 +502,10 @@ async def _send_meta(ws=None):
 
 async def live_engine():
     """세션 감지는 '스케줄'이 아니라 '데이터 흐름'으로 판단한다.
-    - 최근 데이터가 들어오면 LIVE(폴링·녹화·방송).
-    - STALE_SEC 만큼 끊기면 세션 종료로 보고 녹화 저장 → 다시보기.
-    이 방식이라 경기 연기·연장·red flag 로 공식 시각을 넘겨도 녹화가 이어진다."""
-    print("라이브 엔진 시작 — 데이터 흐름 기반 세션 감지")
+    - 최근 데이터가 들어오면 LIVE(폴링·방송).
+    - STALE_SEC 만큼 끊기면 세션 종료로 보고 백필을 예약한 뒤 다시보기로 전환.
+    이 방식이라 경기 연기·연장·red flag 로 공식 시각을 넘겨도 라이브가 이어진다."""
+    print("라이브 엔진 시작: 데이터 흐름 기반 세션 감지")
     replay = None
     replay_i = 0
     last_check = 0.0     # 유휴 중 마지막으로 라이브를 확인한 시각
@@ -522,16 +539,15 @@ async def live_engine():
                         STATE["drivers"] = dm
                         await _send_meta()
                 STATE["cars"] = cars
-                await asyncio.to_thread(_rec_append, sk, name, STATE["drivers"], cars)
                 st = STATE.get("session_start")
                 elapsed = max(0.0, _utcnow().timestamp() - st) if st else None
                 await _broadcast({"type": "frame", "live": True, "session": name,
                                   "elapsed": elapsed, "cars": cars})
                 await asyncio.sleep(LIVE_POLL_SEC)
             elif nowt - last_fresh > STALE_SEC:
-                # 데이터가 오래 끊김 → 세션 종료로 판단, 녹화 저장 후 다시보기로
-                print(f"{name}: {int(STALE_SEC)}s간 데이터 없음 → 세션 종료, 녹화 저장")
-                await asyncio.to_thread(_rec_save)
+                # 데이터가 오래 끊김 → 세션 종료로 판단, 백필 예약 후 다시보기로
+                print(f"{name}: {int(STALE_SEC)}s간 데이터 없음 → 세션 종료, 백필 예약")
+                asyncio.create_task(_backfill_after_session(sk, name))
                 STATE["mode"] = "replay"; replay = None; last_check = 0.0
             else:
                 await asyncio.sleep(LIVE_POLL_SEC)   # 일시적 끊김(피트·중계 지연) — 계속 대기
@@ -580,6 +596,11 @@ async def live_engine():
                             continue
                 except Exception as e:
                     print("세션 확인 오류:", e)
+
+            # 백필이 새 다시보기를 만들었으면 최신 녹화로 다시 고른다
+            if _replay_refresh["flag"]:
+                _replay_refresh["flag"] = False
+                replay = None
 
             if replay is None:
                 replay = _latest_recording() or FALLBACK
