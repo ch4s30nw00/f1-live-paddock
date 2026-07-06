@@ -1,0 +1,7 @@
+fastapi>=0.138
+uvicorn>=0.49
+requests>=2.32
+websockets>=12          # uvicorn 웹소켓 지원
+fastf1>=3.8             # F1 공식 SignalR 피드 수신 (f1feed.py)
+signalrcore>=1.0
+PyJWT>=2.13             # 저장된 F1TV 토큰 만료 확인용
