@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 라이브 패독</title>
+    <style>
+        :root {
+            --f1-red: #ff1801;
+            --bg-dark: #121214;
+            --card-bg: #1a1a1e;
+            --border-color: #2d2d35;
+        }
+        body {
+            background-color: var(--bg-dark);
+            color: #ffffff;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        /* 헤더 & 상단 내비게이션 탭 */
+        header { border-bottom: 2px solid var(--f1-red); padding-bottom: 10px; margin-bottom: 20px; }
+        h1 { margin: 0; color: var(--f1-red); font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+        
+        .nav-tabs { display: flex; gap: 10px; margin-top: 15px; overflow-x: auto; padding-bottom: 5px; }
+        .tab-btn {
+            background-color: #24242b; color: #aaa; border: none; padding: 10px 20px;
+            border-radius: 6px; cursor: pointer; font-weight: bold; white-space: nowrap; transition: 0.2s;
+        }
+        .tab-btn:hover { background-color: #333; color: #fff; }
+        .tab-btn.active { background-color: var(--f1-red); color: white; }
+
+        /* 탭 콘텐츠 영역 컨트롤 */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .card { background-color: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-bottom: 20px; }
+        h2 { margin-top: 0; font-size: 20px; border-left: 4px solid var(--f1-red); padding-left: 10px; }
+
+        /* 테이블 공통 스타일 */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { background-color: #24242b; color: #aaaaaa; }
+        tr:hover { background-color: #24242b; cursor: pointer; }
+        .rank-badge { background-color: #333; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+        tr:nth-child(1) .rank-badge { background-color: var(--f1-red); }
+        .points { font-weight: bold; color: #ffcc00; text-align: right; }
+        th:last-child, td:last-child { text-align: right; }
+
+        /* [4. 선수 라인업 Grid] */
+        .grid-layout { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+        .driver-card { background: #24242b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); text-align: center; padding: 15px; transition: 0.2s; }
+        .driver-card:hover { transform: translateY(-5px); border-color: var(--f1-red); cursor: pointer; }
+        .driver-card img { width: 100%; height: 200px; object-fit: cover; border-radius: 6px; background-color: #121214; }
+
+        /* 프로필 모달(Modal) 창 디자인 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; z-index: 999; }
+        .modal-content { background: var(--card-bg); padding: 25px; border-radius: 16px; width: 360px; position: relative; border: 1px solid var(--border-color); text-align: center; }
+        .modal-content img { width: 100%; height: 280px; object-fit: cover; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .close-btn { position: absolute; top: 15px; right: 20px; font-size: 28px; cursor: pointer; color: #aaa; transition: 0.2s; }
+        .close-btn:hover { color: #fff; }
+        .profile-info { text-align: left; background: #121214; padding: 15px; border-radius: 8px; margin-top: 10px; font-size: 14px; }
+        .profile-info p { margin: 6px 0; border-bottom: 1px solid #24242b; padding-bottom: 6px; color: #ddd; }
+        .profile-info p:last-child { border: none; }
+
+        /* [1. 라이브 탭] 실시간 타이밍 보드 */
+        .board-wrap { max-height: 470px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #0f0f11; }
+        .timing-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .timing-table th { position: sticky; top: 0; background: #1c1c22; color: #8a8a92; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 9px 6px; text-align: left; z-index: 1; }
+        .timing-table td { padding: 8px 6px; border-bottom: 1px solid #202028; white-space: nowrap; }
+        .timing-table tbody tr:hover { background: #1a1a20; }
+        /* 텔레메트리 없는 소스(no-auth 라이브)에선 속도(5)·RPM(6)·기어(7) 열 숨김 */
+        .timing-table.no-telem th:nth-child(n+5):nth-child(-n+7),
+        .timing-table.no-telem td:nth-child(n+5):nth-child(-n+7) { display: none; }
+        .pos-num { font-weight: 800; color: #fff; text-align: center; width: 26px; }
+        .drv { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #fff; }
+        .team-bar { width: 4px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
+        .gap-col, .int-col, .spd, .rpm-col { font-variant-numeric: tabular-nums; }
+        .gap-col { color: #ddd; }
+        .int-col { color: #7fb0ff; }
+        .spd { font-weight: 700; color: #fff; }
+        .spd small { color: #666; font-weight: 400; font-size: 11px; }
+        .rpm-col { color: #999; }
+        .gear-col { text-align: center; color: #fff; font-weight: 700; }
+        .sectors { display: flex; gap: 3px; }
+        .seg { width: 16px; height: 8px; border-radius: 2px; background: #33333c; }
+        .seg.yellow { background: #f5c518; }
+        .seg.green { background: #2ecc40; }
+        .seg.purple { background: #b10dc9; }
+
+        /* 보기 소스 선택 드롭다운 */
+        .source-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .source-row label { color: #888; font-size: 13px; flex: 0 0 auto; }
+        .source-select { flex: 1; background: #24242b; color: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 10px; font-size: 13px; font-weight: bold; cursor: pointer; outline: none; }
+        .source-select:hover { border-color: var(--f1-red); }
+        .source-select option { background: #1a1a1e; font-weight: normal; }
+        .source-select option:disabled { color: #555; }
+
+        /* 라이브/다시보기 재생바 (유튜브식 스크럽) */
+        .player-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 8px 4px; }
+        .play-btn { background: #24242b; border: 1px solid var(--border-color); color: #fff; font-size: 16px; width: 38px; height: 34px; border-radius: 6px; cursor: pointer; flex: 0 0 auto; }
+        .play-btn:hover { background: #333; }
+        .scrub { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; background: #33333c; outline: none; cursor: pointer; }
+        .scrub::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--f1-red); cursor: pointer; box-shadow: 0 0 4px rgba(255,24,1,.6); }
+        .scrub::-moz-range-thumb { width: 16px; height: 16px; border: none; border-radius: 50%; background: var(--f1-red); cursor: pointer; }
+        .time-label { color: #ddd; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 110px; text-align: right; }
+
+        /* [뉴스 & 영상 탭] */
+        .news-item { display: flex; align-items: center; gap: 14px; padding: 10px; border-bottom: 1px solid var(--border-color); text-decoration: none; color: #ddd; transition: .15s; }
+        .news-item:last-child { border-bottom: none; }
+        .news-item:hover { background: #24242b; }
+        .news-thumb { width: 120px; height: 68px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; background: #000; }
+        .news-text { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .news-title { font-weight: 600; line-height: 1.4; }
+        .news-item:hover .news-title { color: var(--f1-red); }
+        .news-date { color: #888; font-size: 12px; }
+        .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+        .video-card { display: block; background: #24242b; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); text-decoration: none; color: inherit; transition: .15s; }
+        .video-card:hover { border-color: var(--f1-red); transform: translateY(-3px); }
+        .video-thumb { position: relative; aspect-ratio: 16 / 9; background: #000; }
+        .video-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-thumb::after { content: '▶'; position: absolute; top: 50%; left: 50%; transform: translate(-45%, -50%); width: 46px; height: 46px; border-radius: 50%; background: rgba(255,24,1,.88); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        .video-title { padding: 10px 12px; font-size: 13px; font-weight: 600; color: #eee; line-height: 1.4; }
+
+        /* [커뮤니티 탭] 로그인 & 게시판 */
+        .login-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .btn-login { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; border: none; text-decoration: none; }
+        .btn-google { background: #fff; color: #333; }
+        .btn-login.disabled { opacity: .45; cursor: not-allowed; }
+        .user-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .user-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: #333; flex: 0 0 auto; }
+        .user-name { font-weight: 700; color: #fff; }
+        .btn-logout { margin-left: auto; background: #33333c; color: #ccc; border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .write-area { display: flex; flex-direction: column; gap: 8px; }
+        .write-area textarea { background: #0f0f11; border: 1px solid var(--border-color); border-radius: 8px; color: #fff; padding: 12px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 70px; outline: none; }
+        .btn-post { align-self: flex-end; background: var(--f1-red); color: #fff; border: none; padding: 9px 22px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .post { padding: 14px 12px; border-bottom: 1px solid var(--border-color); }
+        .post:last-child { border-bottom: none; }
+        .post-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .post-author { font-weight: 700; color: #fff; font-size: 14px; }
+        .post-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
+        .badge-google { background: #4285f4; color: #fff; }
+        .post-date { color: #777; font-size: 12px; margin-left: auto; }
+        .post-body { color: #ddd; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+        /* [경기 결과 탭] 연도 선택 → GP 목록 → 세션별 결과 */
+        .year-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .year-chip { background: #24242b; color: #aaa; border: 1px solid var(--border-color); padding: 8px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; transition: .15s; }
+        .year-chip:hover { color: #fff; border-color: #555; }
+        .year-chip.active { background: var(--f1-red); border-color: var(--f1-red); color: #fff; }
+        .gp-row { display: flex; align-items: center; gap: 12px; padding: 13px 12px; border-bottom: 1px solid var(--border-color); cursor: pointer; transition: .15s; }
+        .gp-row:hover { background: #24242b; }
+        .gp-row:last-child { border-bottom: none; }
+        .gp-round { background: #333; padding: 3px 9px; border-radius: 4px; font-weight: 800; font-size: 12px; color: #ddd; flex: 0 0 auto; min-width: 32px; text-align: center; }
+        .gp-name { flex: 1; min-width: 0; }
+        .gp-name b { color: #fff; }
+        .gp-name span { color: #888; font-size: 13px; }
+        .gp-date { color: #ffcc00; font-size: 13px; white-space: nowrap; }
+        .gp-future { opacity: .4; cursor: default; }
+        .gp-future:hover { background: transparent; }
+        .sprint-badge { background: #3a2f00; color: #ffcc00; font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 700; margin-left: 6px; }
+        .back-btn { background: #24242b; color: #ccc; border: 1px solid var(--border-color); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 12px; }
+        .back-btn:hover { color: #fff; border-color: var(--f1-red); }
+        .gp-title { margin: 4px 0 10px; color: #fff; }
+        .gp-title span { color: #888; font-size: 14px; font-weight: normal; margin-left: 8px; }
+        .session-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+        .sess-chip { background: #24242b; color: #aaa; border: 1px solid var(--border-color); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .sess-chip:hover { color: #fff; }
+        .sess-chip.active { background: var(--f1-red); color: #fff; border-color: var(--f1-red); }
+
+        /* [5. 일정 탭] 카운트다운 & 세션 목록 */
+        .countdown-box { padding: 30px 20px; background: #0f0f11; border-radius: 10px; text-align: center; border: 1px solid var(--border-color); }
+        .cd-session { color: #ffcc00; font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+        .cd-timer { font-size: 52px; font-weight: 800; letter-spacing: 1px; color: #fff; font-variant-numeric: tabular-nums; }
+        .cd-when { color: #888; font-size: 14px; margin-top: 12px; }
+        .cd-when a { color: var(--f1-red); font-weight: bold; text-decoration: none; }
+        .sched-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border-color); }
+        .sched-row:hover { background: #24242b; }
+        .sched-row.is-next { border-left: 3px solid var(--f1-red); background: #1e1417; }
+        .sched-name b { color: #fff; }
+        .sched-name span { color: #aaa; font-size: 13px; }
+
+        /* [예측 게임] 우승자 예측 */
+        .prediction-title { color: #fff; font-weight: bold; margin-bottom: 12px; }
+        .prediction-subtitle { color: #888; font-size: 13px; margin-bottom: 14px; }
+        .prediction-table { display: flex; flex-direction: column; gap: 8px; }
+        .prediction-row { display: flex; align-items: center; gap: 10px; padding: 12px; background: #1a1a1f; border: 1px solid var(--border-color); border-radius: 6px; transition: .15s; }
+        .prediction-row:hover { border-color: #555; background: #24242b; }
+        .prediction-row.my-vote { background: #1a2a1a; border-color: var(--f1-red); }
+        .prediction-driver { flex: 1; color: #fff; font-weight: bold; }
+        .prediction-votes { color: #ffcc00; font-weight: bold; min-width: 40px; text-align: right; }
+        .btn-vote { padding: 8px 16px; background: #333; color: #aaa; border: 1px solid #555; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; transition: .15s; white-space: nowrap; }
+        .btn-vote:hover { background: #444; color: #fff; border-color: #777; }
+        .btn-vote.active { background: var(--f1-red); color: #fff; border-color: var(--f1-red); }
+        .sched-when { color: #ffcc00; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🏎️ F1 라이브 패독</h1>
+        <p style="color: #888; margin: 5px 0 0 0;">실시간 데이터 스트리밍 파이프라인 & 2026 통합 대시보드</p>
+        
+        <div class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('tab-news')">📰 뉴스 & 영상</button>
+            <button class="tab-btn" onclick="switchTab('tab-results')">📊 경기 결과</button>
+            <button class="tab-btn" onclick="switchTab('tab-drivers')">🏆 드라이버 순위</button>
+            <button class="tab-btn" onclick="switchTab('tab-constructors')">🏢 컨스트럭터 순위</button>
+            <button class="tab-btn" onclick="switchTab('tab-lineup')">👥 선수 라인업</button>
+            <button class="tab-btn" onclick="switchTab('tab-schedule')">📅 경기 일정</button>
+            <button class="tab-btn" onclick="switchTab('tab-live')">🏁 타이밍 보드</button>
+            <button class="tab-btn" onclick="switchTab('tab-community')">💬 커뮤니티</button>
+        </div>
+    </header>
+
+    <div id="tab-live" class="tab-content">
+            <div class="card">
+                <h2 id="live-title">🏁 타이밍 보드</h2>
+                <p style="color:#999; font-size:13px; margin:4px 0 12px 0; line-height:1.5;">
+                    최근 그랑프리 <b style="color:#ddd;">3개 레이스</b>를 처음부터 끝까지 다시 볼 수 있어요.
+                    아래에서 경기를 고르고, 재생바(⏸️/▶️·슬라이더)로 원하는 구간으로 이동하세요.
+                </p>
+                <div id="ws-status" style="color: #ffcc00; font-weight: bold; margin-bottom: 10px;">📼 다시보기 불러오는 중...</div>
+                <div class="source-row">
+                    <label for="replay-select">경기 선택</label>
+                    <select id="replay-select" class="source-select" onchange="onSelectChange()"></select>
+                </div>
+                <div class="board-wrap">
+                    <table class="timing-table" id="timing-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align:center;">P</th>
+                                <th>드라이버</th>
+                                <th>GAP</th>
+                                <th>INT</th>
+                                <th>속도</th>
+                                <th>RPM</th>
+                                <th style="text-align:center;">기어</th>
+                                <th>섹터</th>
+                            </tr>
+                        </thead>
+                        <tbody id="board-body">
+                            <tr><td colspan="8" style="text-align:center; color:#666; padding:30px;">다시보기 불러오는 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="player-bar" class="player-bar">
+                    <button id="play-btn" class="play-btn" onclick="togglePlay()">⏸️</button>
+                    <input id="scrub" class="scrub" type="range" min="0" max="0" value="0" step="1" oninput="scrubTo(this.value)">
+                    <span id="time-label" class="time-label">00:00 / 00:00</span>
+                </div>
+            </div>
+    </div>
+
+    <div id="tab-results" class="tab-content">
+        <div class="card">
+            <h2>📊 그랑프리 경기 결과</h2>
+            <p style="color:#999; font-size:13px; margin:4px 0 12px 0; line-height:1.5;">
+                연도를 고르고 그랑프리를 클릭하면 <b style="color:#ddd;">프랙티스 · 퀄리파잉 · 스프린트 · 레이스</b> 결과를 볼 수 있어요.
+                <span style="color:#777;">(프랙티스·스프린트 퀄리파잉 결과는 2023 시즌부터 제공됩니다)</span>
+            </p>
+            <div id="year-row" class="year-row"></div>
+            <div id="results-body"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+    </div>
+
+    <div id="tab-drivers" class="tab-content">
+        <div class="card">
+            <h2>2026 드라이버 챔피언십 순위 (선수 클릭 시 상세 프로필 팝업)</h2>
+            <table>
+                <thead><tr><th>순위</th><th>번호</th><th>이름</th><th>팀</th><th>포인트</th></tr></thead>
+                <tbody id="driver-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="tab-constructors" class="tab-content">
+        <div class="card">
+            <h2>2026 컨스트럭터 팀 순위</h2>
+            <table>
+                <thead><tr><th>순위</th><th>팀 이름</th><th>챔피언십 포인트</th></tr></thead>
+                <tbody id="constructor-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="tab-lineup" class="tab-content">
+        <div class="card">
+            <h2>2026 그리드 드라이버 라인업</h2>
+            <div class="grid-layout" id="lineup-grid"></div>
+        </div>
+    </div>
+
+    <div id="tab-schedule" class="tab-content">
+        <div class="card">
+            <h2>⏱️ 다음 세션 카운트다운</h2>
+            <div class="countdown-box">
+                <div id="cd-session" class="cd-session">일정 불러오는 중...</div>
+                <div id="cd-timer" class="cd-timer">--:--:--</div>
+                <div id="cd-when" class="cd-when"></div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>📅 다가오는 세션 (2026 시즌)</h2>
+            <div id="schedule-list"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+    </div>
+
+    <div id="tab-news" class="tab-content active">
+        <div class="card">
+            <h2>📰 F1 공식 최신 뉴스</h2>
+            <p style="color:#999; font-size:13px; margin:4px 0 12px 0;">formula1.com 공식 뉴스 — 제목을 누르면 원문 기사로 이동합니다.</p>
+            <div id="news-list"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+        <div class="card">
+            <h2>📺 F1 공식 유튜브 채널 영상</h2>
+            <p style="color:#999; font-size:13px; margin:4px 0 12px 0;">공식 'FORMULA 1' 채널 최신 영상.</p>
+            <div id="video-grid" class="video-grid"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+    </div>
+
+    <div id="tab-community" class="tab-content">
+        <div class="card">
+            <h2>💬 F1 패덕 자유게시판</h2>
+            <div id="login-msg"></div>
+            <div id="auth-box"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+        <div class="card">
+            <h2>🏆 우승자 예측 게임</h2>
+            <div id="prediction-section"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+        <div class="card">
+            <h2>📋 게시글</h2>
+            <div id="post-list"><p style="color:#666;">불러오는 중...</p></div>
+        </div>
+    </div>
+</div>
+
+<div id="profile-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" onclick="closeProfile()">&times;</span>
+        <img id="modal-img" src="" alt="선수 사진">
+        <h2 id="modal-name" style="margin: 5px 0; color: var(--f1-red);">선수 이름</h2>
+        <div class="profile-info">
+            <p><strong>소속 팀:</strong> <span id="modal-team">--</span></p>
+            <p><strong>드라이버 넘버:</strong> <span id="modal-number">--</span></p>
+            <p><strong>현재 챔피언십 포인트:</strong> <span id="modal-points" style="color: #ffcc00; font-weight: bold;">-- pts</span></p>
+            <p><strong>주행 머신 모델:</strong> <span id="modal-car">--</span></p>
+            <p><strong>요약 커리어:</strong> <span id="modal-career">--</span></p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let newsLoaded = false;
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        event.currentTarget.classList.add('active');
+        // 뉴스 탭은 처음 열 때만 로드(유튜브 iframe을 미리 안 불러오도록)
+        if (tabId === 'tab-news' && !newsLoaded) { newsLoaded = true; loadNews(); loadVideos(); }
+        if (tabId === 'tab-community' && !communityLoaded) { communityLoaded = true; loadCommunity(); }
+        if (tabId === 'tab-results' && !resultsLoaded) { resultsLoaded = true; initResults(); }
+    }
+
+    function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+    async function loadNews() {
+        const el = document.getElementById('news-list');
+        try {
+            const items = await (await fetch('/api/news')).json();
+            el.innerHTML = items.length ? items.map(n => {
+                const d = new Date(n.date);
+                const ds = isNaN(d) ? '' : d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+                const small = (n.image || '').replace(/\/w_\d+\//, '/w_320/');  // F1 CDN 썸네일 축소
+                const thumb = n.image
+                    ? `<img class="news-thumb" src="${esc(small)}" loading="lazy" onerror="this.style.display='none'">`
+                    : '';
+                return `<a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener">
+                    ${thumb}
+                    <div class="news-text">
+                        <span class="news-title">${esc(n.title)}</span>
+                        <span class="news-date">${ds}</span>
+                    </div>
+                </a>`;
+            }).join('') : '<p style="color:#888;">뉴스를 불러오지 못했습니다.</p>';
+        } catch (e) { el.innerHTML = '<p style="color:#888;">뉴스 로드 실패</p>'; }
+    }
+
+    async function loadVideos() {
+        const el = document.getElementById('video-grid');
+        try {
+            const vids = await (await fetch('/api/videos')).json();
+            el.innerHTML = vids.length ? vids.map(v => `
+                <a class="video-card" href="https://www.youtube.com/watch?v=${esc(v.id)}" target="_blank" rel="noopener">
+                    <div class="video-thumb">
+                        <img src="https://i.ytimg.com/vi/${esc(v.id)}/hqdefault.jpg" loading="lazy" alt="">
+                    </div>
+                    <div class="video-title">${esc(v.title)}</div>
+                </a>`).join('') : '<p style="color:#888;">영상을 불러오지 못했습니다.</p>';
+        } catch (e) { el.innerHTML = '<p style="color:#888;">영상 로드 실패</p>'; }
+    }
+
+    // 드라이버 상세 프로필 모달 열기
+    function openProfileByData(name, team, number, img, car, career, points) {
+        document.getElementById('modal-img').src = img;
+        document.getElementById('modal-name').innerText = name;
+        document.getElementById('modal-team').innerText = team;
+        document.getElementById('modal-number').innerText = `#${number}`;
+        document.getElementById('modal-points').innerText = `${points} pts`;
+        document.getElementById('modal-car').innerText = car;
+        document.getElementById('modal-career').innerText = career;
+        
+        document.getElementById('profile-modal').style.display = 'flex';
+    }
+    
+    function closeProfile() {
+        document.getElementById('profile-modal').style.display = 'none';
+    }
+
+    let allDrivers = [];
+
+    async function loadDriverStandings() {
+        try {
+            const response = await fetch('/api/standings/drivers');
+            const drivers = await response.json();
+            allDrivers = drivers;
+            const tableBody = document.getElementById('driver-table');
+            const lineupGrid = document.getElementById('lineup-grid');
+
+            tableBody.innerHTML = '';
+            lineupGrid.innerHTML = '';
+
+            drivers.forEach(d => {
+                const cleanCareer = d.career_bio.replace(/'/g, "\\'");
+                
+                // 순위표 탭 테이블 행 (클릭 시 프로필 모달)
+                tableBody.innerHTML += `
+                    <tr onclick="openProfileByData('${d.name}', '${d.team}', '${d.number}', '${d.image_url}', '${d.car_model}', '${cleanCareer}', '${d.points}')">
+                        <td><span class="rank-badge">${d.rank}</span></td>
+                        <td>#${d.number}</td>
+                        <td style="font-weight: bold;">${d.name}</td>
+                        <td>${d.team}</td>
+                        <td class="points">${d.points} pts</td>
+                    </tr>`;
+                
+                // 라인업 탭 그리드 카드 (포인트 배지 포함, 클릭 시 프로필 모달)
+                lineupGrid.innerHTML += `
+                    <div class="driver-card" onclick="openProfileByData('${d.name}', '${d.team}', '${d.number}', '${d.image_url}', '${d.car_model}', '${cleanCareer}', '${d.points}')">
+                        <img src="${d.image_url}" onerror="this.style.display='none';">
+                        <h3>${d.name}</h3>
+                        <p style="color: #aaa; font-size: 13px;">${d.team} (#${d.number})</p>
+                        <p style="color: #ffcc00; font-size: 13px; font-weight: bold; margin: 6px 0 3px 0;">📊 ${d.points} pts</p>
+                        <p style="color: var(--f1-red); font-size: 12px; font-weight: bold; margin-top: 5px;">${d.car_model}</p>
+                    </div>`;
+            });
+        } catch (e) { console.error("드라이버 순위 및 라인업 로드 실패", e); }
+    }
+
+    async function loadConstructorStandings() {
+        try {
+            const response = await fetch('/api/standings/constructors');
+            const teams = await response.json();
+            const tableBody = document.getElementById('constructor-table');
+            tableBody.innerHTML = '';
+            teams.forEach(t => {
+                tableBody.innerHTML += `<tr><td><span class="rank-badge">${t.rank}</span></td><td style="font-weight: bold;">${t.team}</td><td class="points">${t.points} pts</td></tr>`;
+            });
+        } catch (e) { console.error("컨스트럭터 순위 로드 실패", e); }
+    }
+
+    // 라이브 타이밍 보드: 드라이버 메타(약칭·팀컬러)를 저장해두고 프레임마다 갱신
+    let driverMeta = {};
+    // 보기 소스 선택 상태 (다시보기 전용 — 최근 GP 레이스)
+    let uiSel = null;          // 현재 선택된 녹화 세션키
+    let userPicked = false;    // 사용자가 직접 골랐는지(자동선택 억제)
+    let recordings = [];       // /api/recordings 목록
+
+    function renderLiveBoard(cars) {
+        const body = document.getElementById('board-body');
+        // 텔레메트리(속도·RPM·기어)가 전혀 없는 소스(no-auth 라이브 등)면 그 열들을 숨김
+        const hasTelemetry = cars.some(c => (c.speed || 0) > 0 || (c.rpm || 0) > 0);
+        document.getElementById('timing-table').classList.toggle('no-telem', !hasTelemetry);
+        const seg = (s) => `<span class="seg ${s || ''}"></span>`;
+        body.innerHTML = cars.map(c => {
+            const m = driverMeta[c.num] || { acronym: '#' + c.num, team: '', color: '888888' };
+            return `
+                <tr>
+                    <td class="pos-num">${c.pos ?? '-'}</td>
+                    <td><div class="drv"><span class="team-bar" style="background:#${m.color}"></span>${m.acronym}</div></td>
+                    <td class="gap-col">${c.gap}</td>
+                    <td class="int-col">${c.int}</td>
+                    <td class="spd">${c.speed}<small> km/h</small></td>
+                    <td class="rpm-col">${c.rpm.toLocaleString()}</td>
+                    <td class="gear-col">${c.gear || '-'}</td>
+                    <td><div class="sectors">${seg(c.s1)}${seg(c.s2)}${seg(c.s3)}</div></td>
+                </tr>`;
+        }).join('');
+    }
+
+    // 다시보기 로컬 플레이어 (녹화 전체를 받아 브라우저에서 재생·스크럽)
+    const player = { data: null, idx: 0, timer: null, playing: false };
+
+    function fmtClock(sec) {
+        sec = Math.max(0, Math.floor(sec));
+        const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+        const mm = String(m).padStart(2, '0'), ss = String(s).padStart(2, '0');
+        return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+    }
+
+    function playerRenderFrame() {
+        if (!player.data || !player.data.frames.length) return;
+        const f = player.data.frames[player.idx];
+        if (f) renderLiveBoard(f.cars);
+        const step = player.data.step || 0.5;
+        const total = (player.data.frames.length - 1) * step;
+        document.getElementById('scrub').value = player.idx;
+        document.getElementById('time-label').innerText = `${fmtClock(player.idx * step)} / ${fmtClock(total)}`;
+    }
+
+    function playerTick() {
+        if (!player.data) return;
+        player.idx++;
+        if (player.idx >= player.data.frames.length) player.idx = 0;   // 끝나면 처음부터 반복
+        playerRenderFrame();
+    }
+
+    function playerPlay() {
+        if (!player.data) return;
+        player.playing = true;
+        document.getElementById('play-btn').innerText = '⏸️';
+        if (player.timer) clearInterval(player.timer);
+        player.timer = setInterval(playerTick, (player.data.step || 0.5) * 1000);
+    }
+
+    function playerPause() {
+        player.playing = false;
+        document.getElementById('play-btn').innerText = '▶️';
+        if (player.timer) { clearInterval(player.timer); player.timer = null; }
+    }
+
+    function togglePlay() { player.playing ? playerPause() : playerPlay(); }
+
+    function scrubTo(v) {
+        if (!player.data) return;
+        player.idx = Math.min(player.data.frames.length - 1, Math.max(0, parseInt(v, 10) || 0));
+        playerRenderFrame();
+    }
+
+    function stopReplayPlayer() {
+        if (player.timer) { clearInterval(player.timer); player.timer = null; }
+        player.data = null; player.playing = false;
+    }
+
+    async function startReplayPlayer(key) {
+        try {
+            const res = await fetch('/api/replay?key=' + encodeURIComponent(key));
+            const data = await res.json();
+            if (!data.frames || !data.frames.length) return;
+            player.data = data;
+            driverMeta = data.drivers || {};
+            player.idx = 0;
+            const scrub = document.getElementById('scrub');
+            scrub.max = data.frames.length - 1;
+            scrub.value = 0;
+            document.getElementById('live-title').innerText = '📼 다시보기 · ' + (data.session || '');
+            const st = document.getElementById('ws-status');
+            st.innerHTML = '📼 다시보기 재생 중 · ' + (data.session || '');
+            st.style.color = '#ffcc00';
+            playerRenderFrame();
+            playerPlay();
+        } catch (e) { console.error("다시보기 로드 실패", e); }
+    }
+
+    // 라이브 수신 (F1 공식 피드 → 서버 웹소켓 /ws/f1)
+    let liveMode = false, liveAvailable = false, liveSession = '', liveDriverMeta = {};
+
+    function enterLive() {
+        stopReplayPlayer();
+        liveMode = true;
+        uiSel = '__live__';
+        const dd = document.getElementById('replay-select');
+        if (dd) dd.value = '__live__';
+        document.getElementById('player-bar').style.display = 'none';   // 라이브엔 스크럽 없음
+        document.getElementById('live-title').innerText = '🔴 라이브 · ' + liveSession;
+        const st = document.getElementById('ws-status');
+        st.innerHTML = '🔴 LIVE · ' + liveSession;
+        st.style.color = '#ff2d2d';
+    }
+
+    function exitLive() {
+        liveMode = false;
+        document.getElementById('player-bar').style.display = '';
+        userPicked = false;          // 세션 종료 → 최신 녹화(방금 세션) 자동 재생
+        loadRecordings();            // 방금 끝난 세션 녹화가 목록에 새로 생겼을 수 있음
+    }
+
+    function connectWS() {
+        let ws;
+        try {
+            const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+            ws = new WebSocket(proto + location.host + '/ws/f1');
+        } catch (e) { return; }
+        ws.onmessage = (ev) => {
+            let msg;
+            try { msg = JSON.parse(ev.data); } catch (e) { return; }
+            if (msg.type === 'meta') {
+                liveAvailable = !!msg.live;
+                liveSession = msg.session || '';
+                if (msg.live && msg.drivers) liveDriverMeta = msg.drivers;
+                buildDropdown();
+                if (liveAvailable) autoSelect();
+                else if (liveMode) exitLive();
+            } else if (msg.type === 'frame') {
+                if (msg.live) {
+                    if (!liveAvailable) {          // meta를 놓쳤어도 프레임으로 감지
+                        liveAvailable = true;
+                        liveSession = msg.session || liveSession;
+                        buildDropdown();
+                        autoSelect();
+                    }
+                    if (liveMode) {
+                        driverMeta = liveDriverMeta;
+                        renderLiveBoard(msg.cars || []);
+                    }
+                } else if (liveMode) {             // 라이브 종료 신호
+                    liveAvailable = false;
+                    exitLive();
+                }
+            }
+        };
+        ws.onclose = () => {
+            if (liveMode) { liveAvailable = false; exitLive(); }
+            setTimeout(connectWS, 5000);           // 자동 재접속
+        };
+        ws.onerror = () => { try { ws.close(); } catch (e) { } };
+    }
+
+    // 보기 소스 드롭다운 (라이브 + 최근 GP 레이스 다시보기)
+    function buildDropdown() {
+        const sel = document.getElementById('replay-select');
+        if (!sel) return;
+        const liveOpt = liveAvailable
+            ? `<option value="__live__">🔴 라이브 · ${liveSession}</option>` : '';
+        if (!recordings.length && !liveOpt) {
+            sel.innerHTML = '<option disabled selected>다시보기 준비 중 (녹화 없음)</option>';
+            return;
+        }
+        sel.innerHTML = liveOpt + recordings.map((r, i) =>
+            `<option value="${r.key}">최근경기 ${i + 1} · ${r.session} (${fmtClock(r.duration)})</option>`
+        ).join('');
+        if (uiSel) sel.value = uiSel;
+    }
+
+    function autoSelect() {
+        if (userPicked) return;
+        if (liveAvailable) {                       // 라이브가 있으면 라이브 우선
+            if (!liveMode) enterLive();
+            return;
+        }
+        if (recordings[0] && String(recordings[0].key) !== uiSel) {
+            applySelection(String(recordings[0].key));
+        }
+    }
+
+    function onSelectChange() {
+        userPicked = true;
+        applySelection(document.getElementById('replay-select').value);
+    }
+
+    function applySelection(sel) {
+        if (sel === '__live__') { enterLive(); return; }
+        if (liveMode) {                            // 라이브 → 다시보기 수동 전환
+            liveMode = false;
+            document.getElementById('player-bar').style.display = '';
+        }
+        uiSel = sel;
+        const dd = document.getElementById('replay-select');
+        if (dd) dd.value = sel;
+        startReplayPlayer(sel);
+    }
+
+    async function loadRecordings() {
+        try {
+            const res = await fetch('/api/recordings');
+            recordings = await res.json();
+        } catch (e) { recordings = []; }
+        buildDropdown();
+        autoSelect();
+    }
+
+    // 경기 결과 탭: 연도 선택 → GP 목록 → 세션별 결과
+    let resultsLoaded = false;
+    let resYear = 2026;
+    let curGp = null, curSess = null;
+    const resCache = {};   // year -> GP 목록
+    const gpCache = {};    // "year_round" -> 상세(완료된 주말만)
+    const RES_YEARS = [2026, 2025, 2024, 2023, 2022];
+    const SESS_ORDER = ['fp1', 'fp2', 'fp3', 'sprint_quali', 'sprint', 'qualifying', 'race'];
+    const SESS_LABEL = { fp1: 'FP1', fp2: 'FP2', fp3: 'FP3', sprint_quali: '스프린트 퀄리',
+                         sprint: '스프린트', qualifying: '퀄리파잉', race: '레이스' };
+
+    function initResults() {
+        document.getElementById('year-row').innerHTML = RES_YEARS.map(y =>
+            `<button class="year-chip ${y === resYear ? 'active' : ''}" onclick="pickYear(${y})">${y}</button>`).join('');
+        loadYearRaces();
+    }
+
+    function pickYear(y) {
+        resYear = y;
+        document.querySelectorAll('.year-chip').forEach(b => b.classList.toggle('active', b.innerText == y));
+        loadYearRaces();
+    }
+
+    async function loadYearRaces() {
+        const body = document.getElementById('results-body');
+        if (!resCache[resYear]) {
+            body.innerHTML = '<p style="color:#666;">시즌 목록 불러오는 중...</p>';
+            try {
+                resCache[resYear] = await (await fetch('/api/results/' + resYear)).json();
+            } catch (e) { body.innerHTML = '<p style="color:#888;">시즌 목록 로드 실패</p>'; return; }
+        }
+        renderRaces();
+    }
+
+    function renderRaces() {
+        const races = resCache[resYear] || [];
+        const body = document.getElementById('results-body');
+        if (!races.length) { body.innerHTML = '<p style="color:#888;">이 시즌의 일정을 불러오지 못했습니다.</p>'; return; }
+        const now = Date.now();
+        body.innerHTML = races.map(r => {
+            // 주말 시작(금요일 ≈ 레이스 이틀 전)부터 클릭 허용 — 그 전엔 '예정'으로 표시
+            const started = now >= new Date(r.date + 'T00:00:00Z').getTime() - 2 * 86400000;
+            const ds = new Date(r.date + 'T12:00:00Z').toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+            return `<div class="gp-row ${started ? '' : 'gp-future'}" ${started ? `onclick="openGp(${r.round})"` : ''}>
+                <span class="gp-round">R${r.round}</span>
+                <div class="gp-name"><b>${esc(r.name)}</b> <span>· ${esc(r.circuit)}</span>${r.has_sprint ? '<span class="sprint-badge">스프린트</span>' : ''}</div>
+                <span class="gp-date">${ds}${started ? '' : ' · 예정'}</span>
+            </div>`;
+        }).join('');
+    }
+
+    async function openGp(rnd) {
+        const body = document.getElementById('results-body');
+        const ck = resYear + '_' + rnd;
+        let d = gpCache[ck];
+        if (!d) {
+            body.innerHTML = '<p style="color:#666;">결과 불러오는 중... (첫 로드는 몇 초 걸릴 수 있어요)</p>';
+            try {
+                d = await (await fetch(`/api/results/${resYear}/${rnd}`)).json();
+            } catch (e) { body.innerHTML = '<p style="color:#888;">결과 로드 실패</p>'; return; }
+            if (d.sessions && d.sessions.race) gpCache[ck] = d;   // 완료된 주말만 프런트에도 캐시
+        }
+        curGp = d;
+        const avail = SESS_ORDER.filter(k => (d.sessions[k] || []).length);
+        if (!avail.length) {
+            body.innerHTML = `<button class="back-btn" onclick="renderRaces()">← ${resYear} 시즌 목록</button>
+                <p style="color:#888;">아직 등록된 결과가 없습니다. 세션 종료 후 다시 확인해주세요.</p>`;
+            return;
+        }
+        curSess = avail.includes('race') ? 'race' : avail[avail.length - 1];
+        renderGp();
+    }
+
+    function renderGp() {
+        const d = curGp;
+        const avail = SESS_ORDER.filter(k => (d.sessions[k] || []).length);
+        document.getElementById('results-body').innerHTML = `
+            <button class="back-btn" onclick="renderRaces()">← ${resYear} 시즌 목록</button>
+            <h3 class="gp-title">R${d.round} · ${esc(d.name)}<span>${esc(d.circuit)}</span></h3>
+            <div class="session-chips">${avail.map(k =>
+                `<button class="sess-chip ${k === curSess ? 'active' : ''}" onclick="pickSess('${k}')">${SESS_LABEL[k]}</button>`).join('')}</div>
+            ${sessionTable(curSess, d.sessions[curSess])}`;
+    }
+
+    function pickSess(k) { curSess = k; renderGp(); }
+
+    function sessionTable(key, rows) {
+        let head, cells;
+        if (rows[0].q1 !== undefined) {                       // 퀄리파잉 · 스프린트 퀄리
+            head = '<th>P</th><th>드라이버</th><th>팀</th><th>Q1</th><th>Q2</th><th>Q3</th>';
+            cells = r => `<td>${r.q1 || '-'}</td><td>${r.q2 || '-'}</td><td>${r.q3 || '-'}</td>`;
+        } else if (key === 'race' || key === 'sprint') {      // 레이스 · 스프린트
+            head = '<th>P</th><th>드라이버</th><th>팀</th><th>그리드</th><th>랩</th><th>시간/상태</th><th>포인트</th>';
+            cells = r => `<td>${r.grid || '-'}</td><td>${r.laps || '-'}</td><td>${esc(r.time || '-')}</td><td class="points">${r.points || '0'}</td>`;
+        } else {                                              // 프랙티스
+            head = '<th>P</th><th>드라이버</th><th>팀</th><th>베스트 랩</th><th>갭</th><th>랩수</th>';
+            cells = r => `<td>${r.time || r.status || '-'}</td><td>${r.gap || '-'}</td><td>${r.laps ?? '-'}</td>`;
+        }
+        return `<table><thead><tr>${head}</tr></thead><tbody>` + rows.map(r => `
+            <tr>
+                <td><span class="rank-badge">${r.pos}</span></td>
+                <td style="font-weight:bold;">${esc(r.driver)} <span style="color:#777; font-weight:normal;">#${r.num}</span></td>
+                <td>${esc(r.team)}</td>${cells(r)}
+            </tr>`).join('') + '</tbody></table>';
+    }
+
+    // 일정 탭: 다음 세션 카운트다운 + 다가오는 세션 목록
+    let countdownTimer = null;
+
+    function fmtWhen(iso) {
+        return new Date(iso).toLocaleString('ko-KR', {
+            month: '2-digit', day: '2-digit', weekday: 'short',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }
+
+    async function loadSchedule() {
+        try {
+            const res = await fetch('/api/schedule');
+            const data = await res.json();
+            renderSchedule(data);
+        } catch (e) { console.error("일정 로드 실패", e); }
+    }
+
+    function renderSchedule(data) {
+        // (1) 다가오는 세션 목록
+        const list = document.getElementById('schedule-list');
+        const upcoming = data.upcoming || [];
+        list.innerHTML = upcoming.length ? upcoming.map((s, i) => `
+            <div class="sched-row ${i === 0 ? 'is-next' : ''}">
+                <div class="sched-name"><b>${s.country}</b> <span>· ${s.name}</span></div>
+                <div class="sched-when">${fmtWhen(s.start)}</div>
+            </div>`).join('') : '<p style="color:#666;">예정된 세션이 없습니다.</p>';
+
+        // (2) 카운트다운
+        if (countdownTimer) clearInterval(countdownTimer);
+        const next = data.next;
+        const cdSession = document.getElementById('cd-session');
+        const cdTimer = document.getElementById('cd-timer');
+        const cdWhen = document.getElementById('cd-when');
+        if (!next) {
+            cdSession.innerText = '예정된 세션 없음';
+            cdTimer.innerText = '--:--:--';
+            cdWhen.innerText = '';
+            return;
+        }
+        cdSession.innerText = `${next.country} · ${next.name}`;
+        const target = new Date(next.start).getTime();
+        const endT = new Date(next.end).getTime();
+
+        function tick() {
+            const now = Date.now();
+            if (now >= target && now <= endT) {           // 진행 중
+                cdTimer.innerHTML = '🔴 진행 중';
+                cdTimer.style.color = '#ff2d2d';
+                cdWhen.innerText = '세션 진행 중 · 종료 후 다시보기로 제공됩니다';
+                return;
+            }
+            if (now > endT) {                              // 끝남 → 일정 새로고침
+                clearInterval(countdownTimer);
+                loadSchedule();
+                return;
+            }
+            const diff = target - now;                     // 시작 전 카운트다운
+            const d = Math.floor(diff / 86400000);
+            const h = Math.floor(diff % 86400000 / 3600000);
+            const mi = Math.floor(diff % 3600000 / 60000);
+            const s = Math.floor(diff % 60000 / 1000);
+            cdTimer.style.color = '#fff';
+            cdTimer.innerText = (d > 0 ? d + '일 ' : '') +
+                String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+            cdWhen.innerText = fmtWhen(next.start) + ' 시작';
+        }
+        tick();
+        countdownTimer = setInterval(tick, 1000);
+    }
+
+    // 커뮤니티: 로그인 상태 + 게시판
+    let communityLoaded = false;
+
+    async function loadCommunity() {
+        // 하나가 실패해도 나머지는 뜨도록 병렬 + 개별 실행
+        renderAuth();
+        loadPredictions();
+        loadPosts();
+    }
+
+    let nextRace = null;
+
+    async function loadPredictions() {
+        const el = document.getElementById('prediction-section');
+        try {
+            // 1. 다음 레이스 찾기
+            const schedRes = await fetch('/api/schedule');
+            const schedData = await schedRes.json();
+            const races = schedData.upcoming.filter(s => s.name === 'Race');
+            if (!races.length) {
+                el.innerHTML = '<p style="color:#888;">다음 레이스가 없습니다.</p>';
+                return;
+            }
+
+            const nextRaceSession = races[0];
+            const raceDate = new Date(nextRaceSession.start);
+            const year = raceDate.getFullYear();
+
+            // 서버에 캐시된 시즌 레이스 목록에서 '레이스 날짜'로 라운드 찾기
+            let round = null, raceName = '';
+            const raceDay = nextRaceSession.start.slice(0, 10);   // "2026-07-05"
+            try {
+                const list = await (await fetch(`/api/results/${year}`)).json();
+                const hit = list.find(r => r.date === raceDay);
+                if (hit) { round = hit.round; raceName = hit.name; }
+            } catch (e) {
+                console.warn("시즌 레이스 목록 로드 실패:", e);
+            }
+            if (!round) {
+                el.innerHTML = '<p style="color:#888;">다음 레이스 정보를 불러오지 못했습니다.</p>';
+                return;
+            }
+
+            nextRace = { year, round, name: raceName || nextRaceSession.country, circuit: nextRaceSession.circuit };
+
+            // 2. 예측 현황 로드
+            const predRes = await fetch(`/api/predictions/${year}/${round}`);
+            const predictions = await predRes.json();
+
+            // 3. 내 예측 로드
+            let myVote = null;
+            try {
+                const myRes = await fetch('/api/my-predictions');
+                if (myRes.ok) {
+                    const myPreds = await myRes.json();
+                    const myPred = myPreds.find(p => p.year === year && p.round === round);
+                    if (myPred) myVote = myPred.driver;
+                }
+            } catch (e) {
+                // 로그인 안 함 - 무시
+            }
+
+            await renderPredictions(predictions, myVote);
+        } catch (e) {
+            console.error("예측 로드 실패:", e);
+            el.innerHTML = '<p style="color:#888;">예측 로드 실패</p>';
+        }
+    }
+
+    async function renderPredictions(predictions, myVote) {
+        const el = document.getElementById('prediction-section');
+        if (!nextRace) {
+            el.innerHTML = '<p style="color:#888;">다음 레이스가 없습니다.</p>';
+            return;
+        }
+
+        const me = await (await fetch('/api/me')).json();
+        const driverList = allDrivers.map(d => d.name);
+
+        let html = `<p class="prediction-subtitle">🏁 ${nextRace.name} (${nextRace.circuit}) 우승자 예측</p>`;
+        html += '<div class="prediction-table">';
+
+        for (const driver of driverList) {
+            const pred = predictions.find(p => p.driver === driver);
+            const votes = pred ? pred.votes : 0;
+            const isMyVote = myVote === driver;
+            html += `<div class="prediction-row ${isMyVote ? 'my-vote' : ''}">
+                <span class="prediction-driver">${esc(driver)}</span>
+                <span class="prediction-votes">${votes} 표</span>
+                ${me.logged_in ? `<button class="btn-vote ${isMyVote ? 'active' : ''}" onclick="submitVote('${esc(driver)}')">
+                    ${isMyVote ? '✓ 선택됨' : '투표'}
+                </button>` : ''}
+            </div>`;
+        }
+
+        html += '</div>';
+        if (!me.logged_in) {
+            html += '<p style="color:#888; font-size:13px; margin-top:10px;">💡 로그인 후 우승자를 예측할 수 있습니다.</p>';
+        }
+
+        el.innerHTML = html;
+    }
+
+    async function submitVote(driverName) {
+        if (!nextRace) return;
+        try {
+            const res = await fetch(`/api/predictions/${nextRace.year}/${nextRace.round}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ driver_name: driverName })
+            });
+            if (res.ok) {
+                loadPredictions();  // 새로고침
+            } else if (res.status === 401) {
+                alert('로그인이 필요합니다.');
+            } else {
+                alert('예측 저장 실패');
+            }
+        } catch (e) {
+            console.error("예측 저장 실패:", e);
+            alert('예측 저장 중 오류가 발생했습니다.');
+        }
+    }
+
+    async function renderAuth() {
+        const box = document.getElementById('auth-box');
+        let me, status;
+        try {
+            me = await (await fetch('/api/me')).json();
+            status = await (await fetch('/api/auth_status')).json();
+        } catch (e) { box.innerHTML = '<p style="color:#888;">로그인 상태 확인 실패</p>'; return; }
+
+        if (me.logged_in) {
+            box.innerHTML = `
+                <div class="user-row">
+                    ${me.picture ? `<img class="user-avatar" src="${esc(me.picture)}" onerror="this.style.display='none'">` : ''}
+                    <span class="user-name">${esc(me.name)}</span>
+                    <span class="post-badge badge-${esc(me.provider)}">${esc(me.provider)}</span>
+                    <button class="btn-logout" onclick="logout()">로그아웃</button>
+                </div>
+                <div class="write-area">
+                    <textarea id="post-input" placeholder="F1 이야기를 남겨보세요... (최대 1000자)" maxlength="1000"></textarea>
+                    <button class="btn-post" onclick="submitPost()">등록</button>
+                </div>`;
+        } else {
+            const g = status.google
+                ? `<a class="btn-login btn-google" href="/auth/google/login">🇬 구글로 로그인</a>`
+                : `<button class="btn-login btn-google disabled" disabled>🇬 구글 (설정 필요)</button>`;
+            const warn = !status.google
+                ? '<p style="color:#ffcc00; font-size:12px; margin-top:10px;">⚠️ 아직 OAuth 키가 설정되지 않았어요. (OAUTH_SETUP.md 참고)</p>' : '';
+            box.innerHTML = `<p style="color:#aaa; margin:6px 0;">로그인하면 글을 남길 수 있어요.</p>
+                <div class="login-row">${g}</div>${warn}`;
+        }
+    }
+
+    async function loadPosts() {
+        const el = document.getElementById('post-list');
+        try {
+            const posts = await (await fetch('/api/posts')).json();
+            el.innerHTML = posts.length ? posts.map(p => `
+                <div class="post">
+                    <div class="post-head">
+                        <span class="post-author">${esc(p.author)}</span>
+                        <span class="post-badge badge-${esc(p.provider)}">${esc(p.provider)}</span>
+                        <span class="post-date">${fmtPostDate(p.created_at)}</span>
+                    </div>
+                    <div class="post-body">${esc(p.content)}</div>
+                </div>`).join('') : '<p style="color:#666; padding:12px;">아직 글이 없어요. 첫 글을 남겨보세요!</p>';
+        } catch (e) { el.innerHTML = '<p style="color:#888;">게시글 로드 실패</p>'; }
+    }
+
+    function fmtPostDate(iso) {
+        const d = new Date(iso);
+        return isNaN(d) ? '' : d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function submitPost() {
+        const ta = document.getElementById('post-input');
+        const content = (ta.value || '').trim();
+        if (!content) return;
+        const res = await fetch('/api/posts', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        if (res.status === 401) { alert('로그인이 필요합니다.'); return; }
+        ta.value = '';
+        loadPosts();
+    }
+
+    async function logout() {
+        await fetch('/auth/logout', { method: 'POST' });
+        renderAuth();
+    }
+
+    window.onload = () => {
+        loadDriverStandings();
+        loadConstructorStandings();
+        loadSchedule();
+        setInterval(loadSchedule, 60000);       // 1분마다 일정 갱신(카운트다운·다음 세션)
+        loadRecordings();                       // 녹화 목록 로드 → 드롭다운 채우고 최신 경기 재생
+        connectWS();                            // 라이브 웹소켓 접속 (세션 중이면 라이브 자동 진입)
+        newsLoaded = true; loadNews(); loadVideos();   // 뉴스 탭이 첫 화면이므로 바로 로드
+
+        // 로그인 리다이렉트(?tab=community) / 에러(?login_error=) 처리
+        const params = new URLSearchParams(location.search);
+        if (params.get('tab') === 'community') {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-community').classList.add('active');
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                if ((b.getAttribute('onclick') || '').includes('tab-community')) b.classList.add('active');
+            });
+            communityLoaded = true; loadCommunity();
+        }
+        const le = params.get('login_error');
+        if (le) {
+            const msgs = {
+                google_not_configured: '구글 로그인이 아직 설정되지 않았어요.'
+            };
+            const m = document.getElementById('login-msg');
+            if (m) m.innerHTML = `<p style="color:#ff6b6b; font-size:13px; margin:6px 0;">⚠️ ${msgs[le] || '로그인에 실패했어요. 다시 시도해주세요.'}</p>`;
+        }
+        if (params.get('tab') || params.get('login_error')) history.replaceState({}, '', '/');
+    };
+</script>
+
+</body>
+</html>

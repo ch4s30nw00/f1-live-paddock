@@ -1,0 +1,20 @@
+# 파이썬
+__pycache__/
+*.pyc
+
+# 비밀키 — 절대 커밋 금지
+oauth_config.json
+
+# 로컬 DB·로그
+f1_database.db
+*.log
+
+# 스크립트가 생성하는 캐시·리플레이 데이터 (build_live_replay.py / build_recordings.py 로 재생성 가능)
+live_replay.json
+schedule_2026.json
+telemetry_9462.json
+recordings/
+results_cache/
+
+# 로컬 도구 설정
+.claude/
