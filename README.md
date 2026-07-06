@@ -34,9 +34,9 @@ flowchart LR
     end
 
     subgraph server.py
-        ENGINE[live_engine\n세션 감지·방송 루프]
-        FEED[f1feed.py\nSignalR 수신기]
-        SYNC[순위 동기화\n15분 주기]
+        ENGINE[live_engine<br/>세션 감지·방송 루프]
+        FEED[f1feed.py<br/>SignalR 수신기]
+        SYNC[순위 동기화<br/>15분 주기]
         API[REST API + 캐시]
     end
 
@@ -47,7 +47,7 @@ flowchart LR
     JOL --> API
     RSS --> API
     DB --> API
-    ENGINE -- WebSocket /ws/f1 --> FE[index.html\n프런트엔드]
+    ENGINE -- WebSocket /ws/f1 --> FE[index.html<br/>프런트엔드]
     API --> FE
 ```
 
