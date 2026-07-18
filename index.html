@@ -65,7 +65,12 @@
         .profile-info p:last-child { border: none; }
 
         /* [1. 라이브 탭] 실시간 타이밍 보드 */
-        .board-wrap { max-height: 470px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #0f0f11; }
+        .live-layout { display: flex; gap: 14px; flex-wrap: wrap; align-items: stretch; }
+        .board-wrap { flex: 1.4 1 480px; min-width: 0; max-height: 470px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background: #0f0f11; }
+        /* 서킷 맵 (드라이버 위치 점) — 위치 데이터 없는 소스에선 JS가 숨긴다 */
+        .trackmap-wrap { flex: 1 1 340px; min-width: 300px; min-height: 320px; max-height: 470px; border: 1px solid var(--border-color); border-radius: 8px; background: #0f0f11; position: relative; overflow: hidden; }
+        .trackmap-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+        .trackmap-label { position: absolute; top: 8px; left: 12px; color: #55565f; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; pointer-events: none; }
         .timing-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .timing-table th { position: sticky; top: 0; background: #1c1c22; color: #8a8a92; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 9px 6px; text-align: left; z-index: 1; }
         .timing-table td { padding: 8px 6px; border-bottom: 1px solid #202028; white-space: nowrap; }
@@ -221,11 +226,17 @@
                 <p style="color:#999; font-size:13px; margin:4px 0 12px 0; line-height:1.5;">
                     최근 그랑프리 <b style="color:#ddd;">3개 레이스</b>를 처음부터 끝까지 다시 볼 수 있어요.
                     아래에서 경기를 고르고, 재생바(⏸️/▶️·슬라이더)로 원하는 구간으로 이동하세요.
+                    위치 데이터가 있는 경기는 <b style="color:#ddd;">서킷 맵</b> 위에서 드라이버들이 실제로 움직이는 모습이 표시됩니다.
                 </p>
                 <div id="ws-status" style="color: #ffcc00; font-weight: bold; margin-bottom: 10px;">📼 다시보기 불러오는 중...</div>
                 <div class="source-row">
                     <label for="replay-select">경기 선택</label>
                     <select id="replay-select" class="source-select" onchange="onSelectChange()"></select>
+                </div>
+                <div class="live-layout">
+                <div class="trackmap-wrap" id="trackmap-wrap" style="display:none;">
+                    <canvas id="trackmap"></canvas>
+                    <span class="trackmap-label">서킷 맵</span>
                 </div>
                 <div class="board-wrap">
                     <table class="timing-table" id="timing-table">
@@ -245,6 +256,7 @@
                             <tr><td colspan="8" style="text-align:center; color:#666; padding:30px;">다시보기 불러오는 중...</td></tr>
                         </tbody>
                     </table>
+                </div>
                 </div>
                 <div id="player-bar" class="player-bar">
                     <button id="play-btn" class="play-btn" onclick="togglePlay()">⏸️</button>
@@ -501,6 +513,166 @@
         }).join('');
     }
 
+    // ---- 서킷 맵: 캔버스에 트랙 외곽선 + 드라이버 위치 점을 그린다 --------
+    //  · 다시보기: 리플레이 파일의 track(외곽선)과 각 차의 x/y를 사용
+    //  · 라이브: 외곽선이 없으므로 차들이 지나간 궤적을 쌓아 트랙을 그린다
+    //  · 프레임 사이(step)에는 점을 선형 보간해 부드럽게 움직인다
+    const tmap = {
+        ctx: null, track: null, trails: {}, dots: {}, bounds: null,
+        raf: null, visible: false,
+    };
+
+    function tmapInit() {
+        const cv = document.getElementById('trackmap');
+        tmap.ctx = cv.getContext('2d');
+        new ResizeObserver(tmapResize).observe(document.getElementById('trackmap-wrap'));
+        tmapResize();
+    }
+
+    function tmapResize() {
+        const wrap = document.getElementById('trackmap-wrap');
+        const cv = document.getElementById('trackmap');
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = Math.max(1, Math.round(wrap.clientWidth * dpr));
+        cv.height = Math.max(1, Math.round(wrap.clientHeight * dpr));
+    }
+
+    // 소스를 바꿀 때(다시보기 선택·라이브 진입) 맵 상태 초기화
+    function tmapReset(track) {
+        tmap.track = (track && track.length >= 10) ? track : null;
+        tmap.trails = {};
+        tmap.dots = {};
+        tmap.bounds = tmap.track ? tmapCalcBounds(tmap.track) : null;
+        tmapShow(false);   // 좌표 있는 첫 프레임이 오면 다시 켠다
+    }
+
+    function tmapCalcBounds(pts) {
+        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+        for (const p of pts) {
+            if (p[0] < minx) minx = p[0];
+            if (p[0] > maxx) maxx = p[0];
+            if (p[1] < miny) miny = p[1];
+            if (p[1] > maxy) maxy = p[1];
+        }
+        // 표본이 몇 개뿐일 때 과도한 확대 방지 (좌표 단위는 0.1m)
+        if (maxx - minx < 500) { minx -= 250; maxx += 250; }
+        if (maxy - miny < 500) { miny -= 250; maxy += 250; }
+        return { minx, miny, maxx, maxy };
+    }
+
+    function tmapShow(on) {
+        const wrap = document.getElementById('trackmap-wrap');
+        if (tmap.visible === on && wrap.style.display === (on ? '' : 'none')) return;
+        wrap.style.display = on ? '' : 'none';
+        tmap.visible = on;
+        if (on) {
+            tmapResize();
+            if (!tmap.raf) tmap.raf = requestAnimationFrame(tmapDraw);
+        }
+    }
+
+    // 새 프레임 수신: 각 점의 목표 좌표를 갱신 (dur초 동안 보간 이동)
+    function tmapUpdate(cars, dur) {
+        const now = performance.now();
+        let any = false;
+        for (const c of cars) {
+            if (c.x == null || c.y == null) continue;
+            any = true;
+            const m = driverMeta[c.num] || {};
+            let d = tmap.dots[c.num];
+            if (!d) d = tmap.dots[c.num] = { x: c.x, y: c.y };
+            const cur = tmapDotPos(d, now);
+            d.fx = cur[0]; d.fy = cur[1];          // 보간 시작 = 현재 표시 위치
+            d.x = c.x; d.y = c.y;                  // 보간 목표 = 새 좌표
+            d.t0 = now; d.dur = Math.max(50, dur * 1000);
+            d.color = '#' + (m.color || '888888');
+            d.acr = m.acronym || ('#' + c.num);
+            d.pos = c.pos;
+            if (!tmap.track) {                     // 외곽선 없음 → 궤적을 쌓아 트랙 형성
+                const tr = tmap.trails[c.num] || (tmap.trails[c.num] = []);
+                const last = tr[tr.length - 1];
+                if (!last || last[0] !== c.x || last[1] !== c.y) {
+                    tr.push([c.x, c.y]);
+                    if (tr.length > 800) tr.shift();
+                }
+                tmap.bounds = null;                // 궤적이 자라면 범위 재계산
+            }
+        }
+        if (any) tmapShow(true);
+        else if (!tmap.track) tmapShow(false);     // 위치 데이터가 없는 소스 → 맵 숨김
+    }
+
+    function tmapDotPos(d, now) {
+        if (d.t0 == null) return [d.x, d.y];
+        const k = Math.min(1, (now - d.t0) / d.dur);
+        return [d.fx + (d.x - d.fx) * k, d.fy + (d.y - d.fy) * k];
+    }
+
+    function tmapDraw() {
+        tmap.raf = requestAnimationFrame(tmapDraw);
+        if (!tmap.visible) return;
+        const cv = document.getElementById('trackmap'), ctx = tmap.ctx;
+        const w = cv.width, h = cv.height;
+        ctx.clearRect(0, 0, w, h);
+
+        if (!tmap.bounds) {                        // 라이브: 궤적+점으로 범위 계산
+            const pts = [];
+            for (const n in tmap.trails) pts.push(...tmap.trails[n]);
+            for (const n in tmap.dots) pts.push([tmap.dots[n].x, tmap.dots[n].y]);
+            if (pts.length < 2) return;
+            tmap.bounds = tmapCalcBounds(pts);
+        }
+        // 좌표계 → 캔버스 변환 (비율 유지, 가운데 정렬, y축 반전)
+        const b = tmap.bounds;
+        const pad = Math.min(w, h) * 0.09;
+        const s = Math.min((w - pad * 2) / (b.maxx - b.minx),
+                           (h - pad * 2) / (b.maxy - b.miny));
+        const ox = (w - (b.maxx - b.minx) * s) / 2;
+        const oy = (h - (b.maxy - b.miny) * s) / 2;
+        const X = x => ox + (x - b.minx) * s;
+        const Y = y => h - (oy + (y - b.miny) * s);
+
+        const lw = Math.max(6, Math.min(w, h) / 34);   // 트랙 두께(화면 크기 비례)
+        ctx.lineJoin = ctx.lineCap = 'round';
+        if (tmap.track) {
+            ctx.beginPath();
+            tmap.track.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+            ctx.closePath();
+            ctx.strokeStyle = '#34353f'; ctx.lineWidth = lw; ctx.stroke();
+            ctx.strokeStyle = '#53545f'; ctx.lineWidth = Math.max(1.5, lw * 0.12); ctx.stroke();
+        } else {
+            ctx.strokeStyle = 'rgba(130,131,145,0.25)';
+            ctx.lineWidth = lw * 0.8;
+            for (const n in tmap.trails) {
+                const tr = tmap.trails[n];
+                if (tr.length < 2) continue;
+                ctx.beginPath();
+                tr.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+                ctx.stroke();
+            }
+        }
+
+        // 드라이버 점 + 약칭 (순위 역순으로 그려 앞 순위가 위에 오게)
+        const now = performance.now();
+        const r = Math.max(4, lw * 0.42);
+        ctx.font = `bold ${Math.round(Math.max(10, r * 1.9))}px Arial`;
+        const dots = Object.values(tmap.dots)
+            .sort((a, b) => (b.pos || 99) - (a.pos || 99));
+        for (const d of dots) {
+            const [x, y] = tmapDotPos(d, now);
+            const px = X(x), py = Y(y);
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fillStyle = d.color; ctx.fill();
+            ctx.lineWidth = Math.max(1, r * 0.28);
+            ctx.strokeStyle = '#0f0f11'; ctx.stroke();
+            ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(15,15,17,0.85)';
+            ctx.strokeText(d.acr, px + r + 3, py + r * 0.9);
+            ctx.fillStyle = d.color;
+            ctx.fillText(d.acr, px + r + 3, py + r * 0.9);
+        }
+    }
+
     // 다시보기 로컬 플레이어 (녹화 전체를 받아 브라우저에서 재생·스크럽)
     const player = { data: null, idx: 0, timer: null, playing: false };
 
@@ -514,7 +686,11 @@
     function playerRenderFrame() {
         if (!player.data || !player.data.frames.length) return;
         const f = player.data.frames[player.idx];
-        if (f) renderLiveBoard(f.cars);
+        if (f) {
+            renderLiveBoard(f.cars);
+            // 재생 중엔 다음 프레임까지 보간, 스크럽/일시정지 땐 바로 이동
+            tmapUpdate(f.cars, player.playing ? (player.data.step || 0.5) : 0.12);
+        }
         const step = player.data.step || 0.5;
         const total = (player.data.frames.length - 1) * step;
         document.getElementById('scrub').value = player.idx;
@@ -562,6 +738,7 @@
             if (!data.frames || !data.frames.length) return;
             player.data = data;
             driverMeta = data.drivers || {};
+            tmapReset(data.track || null);
             player.idx = 0;
             const scrub = document.getElementById('scrub');
             scrub.max = data.frames.length - 1;
@@ -580,6 +757,7 @@
 
     function enterLive() {
         stopReplayPlayer();
+        tmapReset(null);       // 라이브는 외곽선이 없음 → 궤적 누적 모드
         liveMode = true;
         uiSel = '__live__';
         const dd = document.getElementById('replay-select');
@@ -626,6 +804,7 @@
                     if (liveMode) {
                         driverMeta = liveDriverMeta;
                         renderLiveBoard(msg.cars || []);
+                        tmapUpdate(msg.cars || [], 3.0);   // 라이브 폴링 주기만큼 보간
                     }
                 } else if (liveMode) {             // 라이브 종료 신호
                     liveAvailable = false;
@@ -1065,6 +1244,7 @@
     }
 
     window.onload = () => {
+        tmapInit();                             // 서킷 맵 캔버스 준비
         loadDriverStandings();
         loadConstructorStandings();
         loadSchedule();

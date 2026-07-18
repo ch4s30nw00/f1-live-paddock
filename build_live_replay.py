@@ -110,6 +110,34 @@ def fmt_int(v, pos):
     return f"+{v:.3f}"
 
 
+def track_outline(loc_raw, laps, t_start, t_end):
+    """구간 안에서 '완주한 랩 하나'의 좌표 궤적으로 서킷 외곽선을 만든다.
+
+    한 랩을 온전히 돌면 트랙 모양이 그대로 그려지므로, 표본이 가장 많은
+    랩 하나를 골라 최대 500점으로 다운샘플해 반환한다. 적당한 랩이 없으면
+    (구간이 한 랩보다 짧은 등) 빈 리스트를 반환한다."""
+    best = []
+    for lp in laps:
+        n = lp.get("driver_number")
+        ds = lp.get("date_start")
+        dur = lp.get("lap_duration")
+        if n not in loc_raw or not ds or not dur:
+            continue
+        a = iso(ds)
+        b = a + dur
+        if a < t_start or b > t_end:      # 구간을 벗어난 랩은 좌표가 없다
+            continue
+        pts = [xy for t, xy in loc_raw[n] if a <= t <= b]
+        if len(pts) > len(best):
+            best = pts
+        if len(best) > 300:               # 트랙을 그리기엔 충분 → 조기 종료
+            break
+    if len(best) < 50:
+        return []
+    stride = max(1, len(best) // 500)
+    return [[round(x), round(y)] for x, y in best[::stride]]
+
+
 def build_replay(session_key, win_start, win_end, step, out_file, label):
     """세션의 지정 구간을 내려받아 리플레이 JSON 하나로 합친다.
 
@@ -135,7 +163,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     # ---- car_data (드라이버별 1요청, 구간 필터) ----------------------------
     car = {}
     for i, n in enumerate(nums, 1):
-        print(f"[2/5] car_data {i}/{len(nums)} (드라이버 {n}) ...")
+        print(f"[2/6] car_data {i}/{len(nums)} (드라이버 {n}) ...")
         rows = api("car_data", filters=window(win_start, win_end),
                    session_key=session_key, driver_number=n)
         pairs = [(iso(r["date"]), (r["speed"], r["rpm"], r.get("n_gear", 0)))
@@ -143,8 +171,21 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
         car[n] = Fill(pairs)
         time.sleep(0.25)   # 공개 API 레이트리밋 완화
 
+    # ---- location (트랙 위 x/y 좌표, 드라이버별 1요청) ---------------------
+    # 서킷 맵에 드라이버 점을 찍는 용도. (0,0)은 '수신 없음' 표본이라 버린다.
+    loc_raw = {}
+    for i, n in enumerate(nums, 1):
+        print(f"[3/6] location {i}/{len(nums)} (드라이버 {n}) ...")
+        rows = api("location", filters=window(win_start, win_end),
+                   session_key=session_key, driver_number=n)
+        loc_raw[n] = [(iso(r["date"]), (r["x"], r["y"])) for r in rows
+                      if r.get("x") is not None and r.get("y") is not None
+                      and not (r["x"] == 0 and r["y"] == 0)]
+        time.sleep(0.25)
+    loc = {n: Fill(list(v)) for n, v in loc_raw.items()}
+
     # ---- intervals (전체 드라이버, 구간 필터) ------------------------------
-    print("[3/5] intervals ...")
+    print("[4/6] intervals ...")
     iv_rows = api("intervals", filters=window(win_start, win_end),
                   session_key=session_key)
     iv = {n: [] for n in nums}
@@ -155,7 +196,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     iv = {n: Fill(v) for n, v in iv.items()}
 
     # ---- position (구간 시작 전 기준값이 필요해서 세션 전체 조회) ----------
-    print("[4/5] position + laps ...")
+    print("[5/6] position + laps ...")
     pos_rows = api("position", filters=f"&date%3C={win_end}",
                    session_key=session_key)
     pos = {n: [] for n in nums}
@@ -213,8 +254,13 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
             stream.append((t, tuple(state)))
         sect[n] = Fill(stream)
 
+    # ---- 서킷 외곽선 --------------------------------------------------------
+    track = track_outline(loc_raw, laps, t_start, t_end)
+    print(f"      -> 서킷 외곽선 {len(track)}점" if track
+          else "      -> 서킷 외곽선 생성 불가(구간 내 완주 랩 없음)")
+
     # ---- 프레임 조립 --------------------------------------------------------
-    print("[5/5] 프레임으로 병합 중...")
+    print("[6/6] 프레임으로 병합 중...")
     frames = []
     t = t_start
     while t <= t_end:
@@ -224,6 +270,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
             gi = iv[n].at(t) or (None, None)
             p = pos[n].at(t)
             sc = sect[n].at(t) or (None, None, None)
+            xy = loc[n].at(t)
             cars.append({
                 "num": n,
                 "pos": p,
@@ -233,6 +280,8 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
                 "gap": fmt_gap(gi[0]),
                 "int": fmt_int(gi[1], p if p else 99),
                 "s1": sc[0], "s2": sc[1], "s3": sc[2],
+                "x": round(xy[0]) if xy else None,
+                "y": round(xy[1]) if xy else None,
                 "_sort": p if p is not None else (
                     999 + (gi[0] if isinstance(gi[0], (int, float)) else 0)),
             })
@@ -247,6 +296,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
         "session_key": session_key,
         "step": step,
         "drivers": drivers,
+        "track": track,        # 서킷 외곽선 [[x,y],...] — 프런트 서킷 맵용
         "frames": frames,
     }
     with open(out_file, "w", encoding="utf-8") as f:

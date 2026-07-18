@@ -24,9 +24,10 @@ log = logging.getLogger("f1feed")
 logging.basicConfig(format="%(asctime)s [f1feed] %(message)s")
 log.setLevel(logging.INFO)
 
-# 수신할 토픽 — 보드에 필요한 것만 (Position.z 는 트랙맵 없으므로 제외)
+# 수신할 토픽 — 보드에 필요한 것만 (Position.z 는 서킷 맵의 드라이버 위치 점 용)
 TOPICS = ["Heartbeat", "DriverList", "SessionInfo", "SessionStatus",
-          "TrackStatus", "TimingData", "TimingAppData", "CarData.z", "LapCount"]
+          "TrackStatus", "TimingData", "TimingAppData", "CarData.z",
+          "Position.z", "LapCount"]
 
 FRESH_SEC = 15.0    # 마지막 수신이 이 안이면 '라이브 중'으로 판단
 
@@ -158,6 +159,7 @@ class F1Feed:
         self._timing = {}          # TimingData 누적 (Lines)
         self._drivers_raw = {}     # DriverList 누적
         self._car_channels = {}    # num(str) -> {speed,rpm,gear}
+        self._positions = {}       # num(str) -> (x, y) 트랙 좌표
         self._session_info = {}
         self._session_status = ""
         # 스케줄 쪽에서 넣어주는 메타(녹화 파일명·시작시각용)
@@ -184,6 +186,12 @@ class F1Feed:
                                 slot["rpm"] = ch["0"]
                             if "3" in ch:
                                 slot["gear"] = ch["3"]
+                elif topic == "Position.z":
+                    for entry in (data or {}).get("Position", []):
+                        for num, p in (entry.get("Entries") or {}).items():
+                            x, y = p.get("X"), p.get("Y")
+                            if x is not None and y is not None and not (x == 0 and y == 0):
+                                self._positions[num] = (x, y)
                 elif topic == "SessionInfo" and isinstance(data, dict):
                     _merge(self._session_info, data)
                 elif topic == "SessionStatus" and isinstance(data, dict):
@@ -229,6 +237,7 @@ class F1Feed:
         with self._lock:
             lines = dict(self._timing.get("Lines") or {})
             channels = {n: dict(c) for n, c in self._car_channels.items()}
+            positions = dict(self._positions)
         cars = []
         for numstr, line in lines.items():
             if not numstr.isdigit() or not isinstance(line, dict):
@@ -254,6 +263,8 @@ class F1Feed:
                 "s1": _sector_color(sec, 0),
                 "s2": _sector_color(sec, 1),
                 "s3": _sector_color(sec, 2),
+                "x": positions.get(numstr, (None, None))[0],
+                "y": positions.get(numstr, (None, None))[1],
             })
         cars.sort(key=lambda c: c["pos"] if c["pos"] else 99)
         return cars, self.is_fresh()
@@ -320,6 +331,7 @@ class F1Feed:
         with self._lock:
             self._timing.clear()
             self._car_channels.clear()
+            self._positions.clear()
             self._session_info.clear()
             self._last_data = 0.0
         log.info("F1 공식 피드 수신 종료")

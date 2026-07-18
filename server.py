@@ -400,8 +400,9 @@ def _build_live_board(sk, drivers):
     car = _get("car_data", {"session_key": sk}, date_after=_stamp(now - timedelta(seconds=15)), date_before=hi)
     iv  = _get("intervals", {"session_key": sk}, date_after=_stamp(now - timedelta(seconds=45)), date_before=hi)
     pos = _get("position", {"session_key": sk}, date_after=_stamp(now - timedelta(minutes=10)), date_before=hi)
+    loc = _get("location", {"session_key": sk}, date_after=_stamp(now - timedelta(seconds=15)), date_before=hi)
     fresh = bool(car) or bool(iv)
-    lc = _latest_by(car); li = _latest_by(iv); lp = _latest_by(pos)
+    lc = _latest_by(car); li = _latest_by(iv); lp = _latest_by(pos); ll = _latest_by(loc)
 
     if _time.time() - _laps_cache["t"] > 15:
         try:
@@ -418,6 +419,12 @@ def _build_live_board(sk, drivers):
         cd = lc.get(n); ivv = li.get(n); pp = lp.get(n)
         posv = pp["position"] if pp else prev.get("pos")
         sc = colors.get(n, (None, None, None))
+        # 서킷 맵 좌표 — (0,0)은 '수신 없음' 표본이라 직전 값 유지
+        ld = ll.get(n)
+        if ld and not (ld.get("x") == 0 and ld.get("y") == 0):
+            x, y = ld.get("x"), ld.get("y")
+        else:
+            x, y = prev.get("x"), prev.get("y")
         cars.append({
             "num": n,
             "pos": posv,
@@ -427,6 +434,7 @@ def _build_live_board(sk, drivers):
             "gap": _fmt_gap(ivv["gap_to_leader"]) if ivv else prev.get("gap", "-"),
             "int": _fmt_int(ivv["interval"], posv or 99) if ivv else prev.get("int", "—"),
             "s1": sc[0], "s2": sc[1], "s3": sc[2],
+            "x": x, "y": y,
         })
     cars.sort(key=lambda c: c["pos"] if c["pos"] else 99)
     _prev_cars.clear(); _prev_cars.update({c["num"]: c for c in cars})
