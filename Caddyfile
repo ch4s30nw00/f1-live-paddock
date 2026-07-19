@@ -1,0 +1,5 @@
+# SITE_DOMAIN은 docker-compose.yml이 .env에서 읽어 넘겨준다.
+# 도메인이면 자동 HTTPS, ":80"이면 IP 접속용 평문 HTTP.
+{$SITE_DOMAIN} {
+	reverse_proxy app:8000
+}

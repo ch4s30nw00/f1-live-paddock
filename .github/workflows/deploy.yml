@@ -1,0 +1,28 @@
+name: Deploy
+
+# main에 push될 때마다 VM에 SSH로 접속해 최신 코드로 재배포한다.
+# 필요한 GitHub Secrets (repo Settings → Secrets and variables → Actions):
+#   VM_HOST    — VM 공인 IP
+#   VM_USER    — SSH 사용자 (Ubuntu 이미지는 ubuntu)
+#   VM_SSH_KEY — SSH 개인키 전문 (-----BEGIN ... KEY----- 포함)
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH로 VM에 접속해 재배포
+        # 시크릿이 아직 등록되지 않았으면 조용히 건너뛴다 (VM 셋업 전 push 대비)
+        if: ${{ secrets.VM_HOST != '' }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/f1
+            git pull --ff-only
+            docker compose up -d --build
+            docker image prune -f

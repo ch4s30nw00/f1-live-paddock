@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    # 레포 디렉터리를 통째로 마운트 → DB·녹화·캐시가 호스트에 남아
+    # 컨테이너를 재생성해도 데이터가 유지된다 (앱이 상대 경로로 파일을 읽고 씀)
+    volumes:
+      - .:/app
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    # SITE_DOMAIN이 없으면 :80 (도메인 연결 전 IP로 접속 테스트용).
+    # 도메인을 넣으면 Caddy가 HTTPS 인증서를 자동 발급·갱신한다.
+    environment:
+      - SITE_DOMAIN=${SITE_DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,23 @@
+# 이미지에 넣지 않는 것들 — .gitignore와 동일한 생성물 + git/문서
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+*.log
+
+# 비밀키 — 이미지에 절대 포함 금지 (런타임에 볼륨으로 주입)
+oauth_config.json
+
+# 런타임 생성 데이터 (호스트 볼륨에 저장됨)
+f1_database.db
+live_replay.json
+schedule_2026.json
+telemetry_9462.json
+recordings/
+results_cache/
+
+# 문서(README 스크린샷 등)
+docs/
+README.md
+OAUTH_SETUP.md
