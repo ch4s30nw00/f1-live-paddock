@@ -58,8 +58,17 @@ def init_db():
         author TEXT NOT NULL,
         provider TEXT NOT NULL,
         content TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        user_id INTEGER,
+        updated_at TEXT
     )""")
+    # 과거 스키마로 만들어진 posts에 새 컬럼 추가 (user_id: 소유자 판별, updated_at: 수정 표시)
+    # 옛 글은 user_id가 NULL로 남아 수정·삭제 불가로 취급된다
+    for col in ("user_id INTEGER", "updated_at TEXT"):
+        try:
+            cursor.execute(f"ALTER TABLE posts ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass  # 이미 있는 컬럼
 
     # users: OAuth 로그인 사용자
     cursor.execute("""
@@ -999,15 +1008,30 @@ async def google_callback(code: str = None, state: str = None):
     return _finish_login(user)
 
 
-# ---- 게시판 ----
+# ---- 게시판 (CRUD: POST 작성 / GET 목록 / PUT 수정 / DELETE 삭제) ----
+def _post_owner_error(cur, post_id, uid):
+    """소유자 검증. 문제 없으면 None, 아니면 에러 코드 반환."""
+    cur.execute("SELECT user_id FROM posts WHERE id = ?", (post_id,))
+    row = cur.fetchone()
+    if not row:
+        return "not_found"
+    if row[0] is None or row[0] != uid:   # user_id가 NULL인 옛 글은 아무도 못 고친다
+        return "forbidden"
+    return None
+
+
 @app.get("/api/posts")
-async def get_posts():
+async def get_posts(request: Request):
+    u = _current_user(request)
+    uid = u.get("id") if u else None
     conn = sqlite3.connect("f1_database.db")
     cur = conn.cursor()
-    cur.execute("SELECT author, provider, content, created_at FROM posts ORDER BY id DESC LIMIT 100")
+    cur.execute("""SELECT id, author, provider, content, created_at, user_id, updated_at
+                   FROM posts ORDER BY id DESC LIMIT 100""")
     rows = cur.fetchall()
     conn.close()
-    return [{"author": r[0], "provider": r[1], "content": r[2], "created_at": r[3]} for r in rows]
+    return [{"id": r[0], "author": r[1], "provider": r[2], "content": r[3], "created_at": r[4],
+             "mine": uid is not None and r[5] == uid, "edited": bool(r[6])} for r in rows]
 
 
 @app.post("/api/posts")
@@ -1021,8 +1045,48 @@ async def create_post(request: Request):
         return JSONResponse({"error": "empty"}, status_code=400)
     conn = sqlite3.connect("f1_database.db")
     cur = conn.cursor()
-    cur.execute("INSERT INTO posts (author, provider, content, created_at) VALUES (?, ?, ?, ?)",
-                (u["name"], u["provider"], content, datetime.now(timezone.utc).isoformat()))
+    cur.execute("INSERT INTO posts (author, provider, content, created_at, user_id) VALUES (?, ?, ?, ?, ?)",
+                (u["name"], u["provider"], content, datetime.now(timezone.utc).isoformat(), u.get("id")))
+    conn.commit()
+    post_id = cur.lastrowid
+    conn.close()
+    return {"ok": True, "id": post_id}
+
+
+@app.put("/api/posts/{post_id}")
+async def update_post(post_id: int, request: Request):
+    u = _current_user(request)
+    if not u:
+        return JSONResponse({"error": "login_required"}, status_code=401)
+    body = await request.json()
+    content = (body.get("content") or "").strip()[:1000]
+    if not content:
+        return JSONResponse({"error": "empty"}, status_code=400)
+    conn = sqlite3.connect("f1_database.db")
+    cur = conn.cursor()
+    err = _post_owner_error(cur, post_id, u.get("id"))
+    if err:
+        conn.close()
+        return JSONResponse({"error": err}, status_code=404 if err == "not_found" else 403)
+    cur.execute("UPDATE posts SET content = ?, updated_at = ? WHERE id = ?",
+                (content, datetime.now(timezone.utc).isoformat(), post_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.delete("/api/posts/{post_id}")
+async def delete_post(post_id: int, request: Request):
+    u = _current_user(request)
+    if not u:
+        return JSONResponse({"error": "login_required"}, status_code=401)
+    conn = sqlite3.connect("f1_database.db")
+    cur = conn.cursor()
+    err = _post_owner_error(cur, post_id, u.get("id"))
+    if err:
+        conn.close()
+        return JSONResponse({"error": err}, status_code=404 if err == "not_found" else 403)
+    cur.execute("DELETE FROM posts WHERE id = ?", (post_id,))
     conn.commit()
     conn.close()
     return {"ok": True}

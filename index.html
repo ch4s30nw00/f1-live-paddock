@@ -138,15 +138,28 @@
         .user-name { font-weight: 700; color: #fff; }
         .btn-logout { margin-left: auto; background: #33333c; color: #ccc; border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
         .write-area { display: flex; flex-direction: column; gap: 8px; }
-        .write-area textarea { background: #0f0f11; border: 1px solid var(--border-color); border-radius: 8px; color: #fff; padding: 12px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 70px; outline: none; }
-        .btn-post { align-self: flex-end; background: var(--f1-red); color: #fff; border: none; padding: 9px 22px; border-radius: 8px; font-weight: 700; cursor: pointer; }
-        .post { padding: 14px 12px; border-bottom: 1px solid var(--border-color); }
+        .write-area textarea { background: #0f0f11; border: 1px solid var(--border-color); border-radius: 8px; color: #fff; padding: 12px; font-family: inherit; font-size: 14px; resize: vertical; min-height: 70px; outline: none; transition: border-color .15s; }
+        .write-area textarea:focus { border-color: var(--f1-red); }
+        .write-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+        .char-count { color: #666; font-size: 12px; }
+        .btn-post { background: var(--f1-red); color: #fff; border: none; padding: 9px 22px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .btn-post:hover { filter: brightness(1.15); }
+        .post-count { color: #888; font-size: 13px; font-weight: 400; margin-left: 8px; }
+        .post { display: flex; gap: 12px; padding: 16px 12px; border-bottom: 1px solid var(--border-color); transition: background .15s; }
+        .post:hover { background: #1e1e24; }
         .post:last-child { border-bottom: none; }
-        .post-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .post-avatar { width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; color: #fff; }
+        .post-main { flex: 1; min-width: 0; }
+        .post-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
         .post-author { font-weight: 700; color: #fff; font-size: 14px; }
         .post-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
         .badge-google { background: #4285f4; color: #fff; }
+        .post-edited { color: #666; font-size: 11px; }
         .post-date { color: #777; font-size: 12px; margin-left: auto; }
+        .post-actions { display: flex; gap: 6px; }
+        .btn-ghost { background: none; border: 1px solid var(--border-color); color: #999; font-size: 11px; padding: 3px 10px; border-radius: 5px; cursor: pointer; transition: .15s; }
+        .btn-ghost:hover { color: #fff; border-color: #666; }
+        .btn-ghost.danger:hover { color: #fff; border-color: var(--f1-red); background: var(--f1-red); }
         .post-body { color: #ddd; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 
         /* [경기 결과 탭] 연도 선택 → GP 목록 → 세션별 결과 */
@@ -344,7 +357,7 @@
             <div id="prediction-section"><p style="color:#666;">불러오는 중...</p></div>
         </div>
         <div class="card">
-            <h2>📋 게시글</h2>
+            <h2>📋 게시글<span class="post-count" id="post-count"></span></h2>
             <div id="post-list"><p style="color:#666;">불러오는 중...</p></div>
         </div>
     </div>
@@ -1190,8 +1203,12 @@
                     <button class="btn-logout" onclick="logout()">로그아웃</button>
                 </div>
                 <div class="write-area">
-                    <textarea id="post-input" placeholder="F1 이야기를 남겨보세요... (최대 1000자)" maxlength="1000"></textarea>
-                    <button class="btn-post" onclick="submitPost()">등록</button>
+                    <textarea id="post-input" placeholder="F1 이야기를 남겨보세요... (최대 1000자)" maxlength="1000"
+                        oninput="document.getElementById('char-count').textContent = this.value.length + ' / 1000'"></textarea>
+                    <div class="write-foot">
+                        <span class="char-count" id="char-count">0 / 1000</span>
+                        <button class="btn-post" onclick="submitPost()">등록</button>
+                    </div>
                 </div>`;
         } else {
             const g = status.google
@@ -1204,25 +1221,47 @@
         }
     }
 
+    // 작성자 이름 → 아바타 색 (팀 컬러 팔레트에서 이름 해시로 고정 선택)
+    const AVATAR_COLORS = ['#e10600', '#3671c6', '#ff8000', '#229971', '#6692ff', '#b6babd', '#52e252', '#ff87bc', '#a55ecf', '#00a0dd'];
+    function avatarColor(name) {
+        let h = 0;
+        for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+        return AVATAR_COLORS[h % AVATAR_COLORS.length];
+    }
+
     async function loadPosts() {
         const el = document.getElementById('post-list');
         try {
             const posts = await (await fetch('/api/posts')).json();
+            document.getElementById('post-count').textContent = posts.length ? `${posts.length}개` : '';
             el.innerHTML = posts.length ? posts.map(p => `
                 <div class="post">
-                    <div class="post-head">
-                        <span class="post-author">${esc(p.author)}</span>
-                        <span class="post-badge badge-${esc(p.provider)}">${esc(p.provider)}</span>
-                        <span class="post-date">${fmtPostDate(p.created_at)}</span>
+                    <div class="post-avatar" style="background:${avatarColor(p.author)}">${esc((p.author || '?')[0])}</div>
+                    <div class="post-main">
+                        <div class="post-head">
+                            <span class="post-author">${esc(p.author)}</span>
+                            <span class="post-badge badge-${esc(p.provider)}">${esc(p.provider)}</span>
+                            ${p.edited ? '<span class="post-edited">(수정됨)</span>' : ''}
+                            <span class="post-date">${fmtPostDate(p.created_at)}</span>
+                            ${p.mine ? `<span class="post-actions">
+                                <button class="btn-ghost" onclick="editPost(${p.id})">수정</button>
+                                <button class="btn-ghost danger" onclick="deletePost(${p.id})">삭제</button>
+                            </span>` : ''}
+                        </div>
+                        <div class="post-body" id="post-body-${p.id}">${esc(p.content)}</div>
                     </div>
-                    <div class="post-body">${esc(p.content)}</div>
                 </div>`).join('') : '<p style="color:#666; padding:12px;">아직 글이 없어요. 첫 글을 남겨보세요!</p>';
         } catch (e) { el.innerHTML = '<p style="color:#888;">게시글 로드 실패</p>'; }
     }
 
     function fmtPostDate(iso) {
         const d = new Date(iso);
-        return isNaN(d) ? '' : d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        if (isNaN(d)) return '';
+        const sec = (Date.now() - d.getTime()) / 1000;
+        if (sec < 60) return '방금 전';
+        if (sec < 3600) return `${Math.floor(sec / 60)}분 전`;
+        if (sec < 86400) return `${Math.floor(sec / 3600)}시간 전`;
+        return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     }
 
     async function submitPost() {
@@ -1235,6 +1274,42 @@
         });
         if (res.status === 401) { alert('로그인이 필요합니다.'); return; }
         ta.value = '';
+        const cc = document.getElementById('char-count');
+        if (cc) cc.textContent = '0 / 1000';
+        loadPosts();
+    }
+
+    async function deletePost(id) {
+        if (!confirm('이 글을 삭제할까요?')) return;
+        const res = await fetch(`/api/posts/${id}`, { method: 'DELETE' });
+        if (!res.ok) { alert(res.status === 401 ? '로그인이 필요합니다.' : '삭제할 수 없습니다.'); return; }
+        loadPosts();
+    }
+
+    function editPost(id) {
+        const body = document.getElementById(`post-body-${id}`);
+        if (!body || body.dataset.editing) return;
+        body.dataset.editing = '1';
+        const orig = body.textContent;
+        body.innerHTML = `
+            <div class="write-area" style="margin-top:4px;">
+                <textarea maxlength="1000">${esc(orig)}</textarea>
+                <div class="write-foot">
+                    <button class="btn-ghost" onclick="loadPosts()">취소</button>
+                    <button class="btn-post" style="padding:6px 16px;" onclick="saveEdit(${id}, this)">저장</button>
+                </div>
+            </div>`;
+    }
+
+    async function saveEdit(id, btn) {
+        const ta = btn.closest('.write-area').querySelector('textarea');
+        const content = (ta.value || '').trim();
+        if (!content) return;
+        const res = await fetch(`/api/posts/${id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        if (!res.ok) { alert('수정할 수 없습니다.'); return; }
         loadPosts();
     }
 
