@@ -146,7 +146,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     저장하고 (프레임 수, 드라이버 수)를 반환한다."""
     t_start = iso(win_start)
     t_end = iso(win_end)
-    print(f"[1/5] 세션 {session_key} 드라이버 목록 조회...")
+    print(f"[1/7] 세션 {session_key} 드라이버 목록 조회...")
     drivers_raw = api("drivers", session_key=session_key)
     drivers = {}
     for d in drivers_raw:
@@ -163,7 +163,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     # ---- car_data (드라이버별 1요청, 구간 필터) ----------------------------
     car = {}
     for i, n in enumerate(nums, 1):
-        print(f"[2/6] car_data {i}/{len(nums)} (드라이버 {n}) ...")
+        print(f"[2/7] car_data {i}/{len(nums)} (드라이버 {n}) ...")
         rows = api("car_data", filters=window(win_start, win_end),
                    session_key=session_key, driver_number=n)
         pairs = [(iso(r["date"]), (r["speed"], r["rpm"], r.get("n_gear", 0)))
@@ -175,7 +175,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     # 서킷 맵에 드라이버 점을 찍는 용도. (0,0)은 '수신 없음' 표본이라 버린다.
     loc_raw = {}
     for i, n in enumerate(nums, 1):
-        print(f"[3/6] location {i}/{len(nums)} (드라이버 {n}) ...")
+        print(f"[3/7] location {i}/{len(nums)} (드라이버 {n}) ...")
         rows = api("location", filters=window(win_start, win_end),
                    session_key=session_key, driver_number=n)
         loc_raw[n] = [(iso(r["date"]), (r["x"], r["y"])) for r in rows
@@ -185,7 +185,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     loc = {n: Fill(list(v)) for n, v in loc_raw.items()}
 
     # ---- intervals (전체 드라이버, 구간 필터) ------------------------------
-    print("[4/6] intervals ...")
+    print("[4/7] intervals ...")
     iv_rows = api("intervals", filters=window(win_start, win_end),
                   session_key=session_key)
     iv = {n: [] for n in nums}
@@ -196,7 +196,7 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     iv = {n: Fill(v) for n, v in iv.items()}
 
     # ---- position (구간 시작 전 기준값이 필요해서 세션 전체 조회) ----------
-    print("[5/6] position + laps ...")
+    print("[5/7] position + laps ...")
     pos_rows = api("position", filters=f"&date%3C={win_end}",
                    session_key=session_key)
     pos = {n: [] for n in nums}
@@ -259,8 +259,29 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
     print(f"      -> 서킷 외곽선 {len(track)}점" if track
           else "      -> 서킷 외곽선 생성 불가(구간 내 완주 랩 없음)")
 
+    # ---- 레이스 컨트롤 메시지 + 팀 라디오 ----------------------------------
+    # 리플레이 타임라인에 깃발/SC 배너와 무전 재생 마커를 얹는 용도.
+    # t는 프레임과 같은 '구간 시작 기준 상대 초'로 저장한다.
+    print("[6/7] race_control + team_radio ...")
+    rc_rows = api("race_control", filters=window(win_start, win_end),
+                  session_key=session_key)
+    race_control = sorted(
+        [{"t": round(iso(r["date"]) - t_start, 1),
+          "flag": r.get("flag"), "category": r.get("category"),
+          "num": r.get("driver_number"), "msg": r.get("message") or ""}
+         for r in rc_rows if r.get("date") and r.get("message")],
+        key=lambda m: m["t"])
+    radio_rows = api("team_radio", filters=window(win_start, win_end),
+                     session_key=session_key)
+    radio = sorted(
+        [{"t": round(iso(r["date"]) - t_start, 1),
+          "num": r["driver_number"], "url": r["recording_url"]}
+         for r in radio_rows if r.get("date") and r.get("recording_url")],
+        key=lambda m: m["t"])
+    print(f"      -> 메시지 {len(race_control)}건, 라디오 {len(radio)}건")
+
     # ---- 프레임 조립 --------------------------------------------------------
-    print("[6/6] 프레임으로 병합 중...")
+    print("[7/7] 프레임으로 병합 중...")
     frames = []
     t = t_start
     while t <= t_end:
@@ -297,6 +318,8 @@ def build_replay(session_key, win_start, win_end, step, out_file, label):
         "step": step,
         "drivers": drivers,
         "track": track,        # 서킷 외곽선 [[x,y],...] — 프런트 서킷 맵용
+        "race_control": race_control,   # 깃발·SC·페널티 메시지 [{t,flag,category,num,msg}]
+        "radio": radio,                 # 팀 라디오 [{t,num,url}] — 슬라이더 마커에서 재생
         "frames": frames,
     }
     with open(out_file, "w", encoding="utf-8") as f:

@@ -106,7 +106,31 @@
         .player-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 8px 4px; }
         .play-btn { background: #24242b; border: 1px solid var(--border-color); color: #fff; font-size: 16px; width: 38px; height: 34px; border-radius: 6px; cursor: pointer; flex: 0 0 auto; }
         .play-btn:hover { background: #333; }
-        .scrub { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; background: #33333c; outline: none; cursor: pointer; }
+        .rc-banner { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-bottom: 10px; line-height: 1.4; }
+        .rc-banner b { white-space: nowrap; }
+        .scrub-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+        .scrub { width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; background: #33333c; outline: none; cursor: pointer; }
+        .radio-marks { position: absolute; left: 0; right: 0; top: -6px; height: 7px; pointer-events: none; }
+        .radio-mark { position: absolute; width: 7px; height: 7px; border-radius: 50%; border: 1px solid #0f0f11; transform: translateX(-50%); pointer-events: auto; cursor: pointer; transition: transform .1s; }
+        .radio-mark:hover { transform: translateX(-50%) scale(1.6); }
+        .radio-status { font-size: 12px; color: #ffcc00; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+        .radio-stop { background: none; border: 1px solid var(--border-color); color: #ccc; border-radius: 4px; cursor: pointer; font-size: 11px; padding: 1px 7px; }
+        /* [타이밍 보드] 텔레메트리 비교 차트 */
+        .tel-card { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 14px; }
+        .tel-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+        .tel-head h3 { margin: 0; font-size: 15px; color: #fff; }
+        .tel-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .tel-select { background: #24242b; color: #eee; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; font-size: 13px; max-width: 190px; }
+        .tel-vs { color: #777; font-size: 12px; font-weight: 700; }
+        .tel-chip { background: #24242b; color: #aaa; border: 1px solid var(--border-color); border-radius: 14px; padding: 5px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .tel-chip.active { background: var(--f1-red); border-color: var(--f1-red); color: #fff; }
+        .tel-legend { display: flex; gap: 14px; margin: 10px 2px 4px; font-size: 12px; color: #ccc; }
+        .tel-legend .chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 5px; vertical-align: -1px; }
+        .tel-wrap { position: relative; }
+        #tel-canvas { width: 100%; height: 220px; display: block; cursor: crosshair; }
+        .tel-tip { position: absolute; pointer-events: none; background: rgba(15,15,17,.94); border: 1px solid #3a3a42; border-radius: 6px; padding: 7px 10px; font-size: 12px; color: #ddd; white-space: nowrap; z-index: 5; }
+        .tel-tip .chip { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+        .tel-hint { color: #666; font-size: 11px; margin: 6px 2px 0; }
         .scrub::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--f1-red); cursor: pointer; box-shadow: 0 0 4px rgba(255,24,1,.6); }
         .scrub::-moz-range-thumb { width: 16px; height: 16px; border: none; border-radius: 50%; background: var(--f1-red); cursor: pointer; }
         .time-label { color: #ddd; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; min-width: 110px; text-align: right; }
@@ -246,6 +270,7 @@
                     <label for="replay-select">경기 선택</label>
                     <select id="replay-select" class="source-select" onchange="onSelectChange()"></select>
                 </div>
+                <div id="rc-banner" class="rc-banner" style="display:none;"></div>
                 <div class="live-layout">
                 <div class="trackmap-wrap" id="trackmap-wrap" style="display:none;">
                     <canvas id="trackmap"></canvas>
@@ -273,8 +298,30 @@
                 </div>
                 <div id="player-bar" class="player-bar">
                     <button id="play-btn" class="play-btn" onclick="togglePlay()">⏸️</button>
-                    <input id="scrub" class="scrub" type="range" min="0" max="0" value="0" step="1" oninput="scrubTo(this.value)">
+                    <div class="scrub-wrap">
+                        <div id="radio-marks" class="radio-marks"></div>
+                        <input id="scrub" class="scrub" type="range" min="0" max="0" value="0" step="1" oninput="scrubTo(this.value)">
+                    </div>
+                    <span id="radio-status" class="radio-status" style="display:none;"></span>
                     <span id="time-label" class="time-label">00:00 / 00:00</span>
+                </div>
+                <div id="tel-card" class="tel-card" style="display:none;">
+                    <div class="tel-head">
+                        <h3>📈 텔레메트리 비교</h3>
+                        <div class="tel-controls">
+                            <select id="tel-a" class="tel-select" onchange="telPick()"></select>
+                            <span class="tel-vs">VS</span>
+                            <select id="tel-b" class="tel-select" onchange="telPick()"></select>
+                            <button class="tel-chip active" id="tel-m-speed" onclick="telMetric('speed')">속도</button>
+                            <button class="tel-chip" id="tel-m-gap" onclick="telMetric('gap')">리더와의 갭</button>
+                        </div>
+                    </div>
+                    <div class="tel-legend" id="tel-legend"></div>
+                    <div class="tel-wrap">
+                        <canvas id="tel-canvas"></canvas>
+                        <div id="tel-tip" class="tel-tip" style="display:none;"></div>
+                    </div>
+                    <p class="tel-hint">차트에 마우스를 올리면 값이, 클릭하면 리플레이가 그 시점으로 이동합니다. 세로선은 현재 재생 위치입니다.</p>
                 </div>
             </div>
     </div>
@@ -708,6 +755,8 @@
         const total = (player.data.frames.length - 1) * step;
         document.getElementById('scrub').value = player.idx;
         document.getElementById('time-label').innerText = `${fmtClock(player.idx * step)} / ${fmtClock(total)}`;
+        rcUpdate(player.idx * step);   // 현재 시점의 레이스 컨트롤 배너 갱신
+        telDraw();                     // 텔레메트리 차트 플레이헤드 갱신
     }
 
     function playerTick() {
@@ -739,9 +788,277 @@
         playerRenderFrame();
     }
 
+    // ---- 레이스 컨트롤 배너 + 팀 라디오 ------------------------------------
+    const FLAG_STYLE = {   // flag 값 → [배경, 글자색, 아이콘]
+        'YELLOW': ['#ffd400', '#111', '🟡'], 'DOUBLE YELLOW': ['#ffd400', '#111', '🟡'],
+        'RED': ['#e10600', '#fff', '🔴'], 'GREEN': ['#28a745', '#fff', '🟢'],
+        'CLEAR': ['#28a745', '#fff', '🟢'], 'BLUE': ['#3671c6', '#fff', '🔵'],
+        'CHEQUERED': ['#e8e8e8', '#111', '🏁'], 'BLACK AND WHITE': ['#e8e8e8', '#111', '⚠️'],
+    };
+    const RC_SHOW_SEC = 30;   // 메시지 발생 후 배너를 띄워두는 시간(초)
+
+    function rcUpdate(curT) {
+        const el = document.getElementById('rc-banner');
+        const list = (player.data && player.data.race_control) || [];
+        let m = null;
+        for (const r of list) { if (r.t <= curT) m = r; else break; }
+        if (!m || curT - m.t > RC_SHOW_SEC) { el.style.display = 'none'; return; }
+        const isSC = /safety/i.test(m.category || '') || /SAFETY CAR|VIRTUAL/i.test(m.msg);
+        let [bg, fg, icon] = FLAG_STYLE[(m.flag || '').toUpperCase()] || ['#33333c', '#ddd', '📢'];
+        if (isSC) { bg = '#ff8000'; fg = '#111'; icon = '🚧'; }
+        const who = m.num && driverMeta[String(m.num)] ? ` · ${driverMeta[String(m.num)].acronym}` : '';
+        el.style.background = bg; el.style.color = fg;
+        el.innerHTML = `<b>${icon} ${esc((m.flag || m.category || 'RACE CONTROL') + who)}</b><span>${esc(m.msg)}</span>`;
+        el.style.display = '';
+    }
+
+    const radioAudio = { el: null };
+
+    function radioMarkersRender() {
+        const wrap = document.getElementById('radio-marks');
+        wrap.innerHTML = '';
+        const data = player.data;
+        const list = (data && data.radio) || [];
+        wrap.style.display = list.length ? '' : 'none';
+        if (!list.length) return;
+        const total = (data.frames.length - 1) * (data.step || 0.5);
+        list.forEach((r, i) => {
+            const drv = (data.drivers || {})[String(r.num)] || {};
+            const d = document.createElement('div');
+            d.className = 'radio-mark';
+            d.style.left = (r.t / total * 100).toFixed(2) + '%';
+            d.style.background = '#' + (drv.color || '888888');
+            d.title = `📻 ${drv.acronym || r.num} 팀 라디오 · ${fmtClock(r.t)} (클릭해서 듣기)`;
+            d.onclick = () => playRadio(i);
+            wrap.appendChild(d);
+        });
+    }
+
+    function playRadio(i) {
+        const r = ((player.data || {}).radio || [])[i];
+        if (!r) return;
+        radioStop();
+        const drv = ((player.data || {}).drivers || {})[String(r.num)] || {};
+        const a = new Audio(r.url);
+        radioAudio.el = a;
+        const st = document.getElementById('radio-status');
+        st.innerHTML = `📻 ${esc(drv.acronym || String(r.num))} 무전 <button class="radio-stop" onclick="radioStop()">⏹ 정지</button>`;
+        st.style.display = '';
+        a.onended = radioStop;
+        a.onerror = radioStop;
+        a.play().catch(radioStop);
+    }
+
+    function radioStop() {
+        if (radioAudio.el) { radioAudio.el.pause(); radioAudio.el = null; }
+        const st = document.getElementById('radio-status');
+        if (st) { st.style.display = 'none'; st.innerHTML = ''; }
+    }
+
+    // ---- 텔레메트리 비교 차트 -----------------------------------------------
+    // 리플레이 프레임에 이미 있는 드라이버별 속도/갭을 시리즈로 뽑아 캔버스에
+    // 직접 그린다. 시리즈 색은 팀 컬러(같은 팀이면 두 번째는 점선), 값 라벨과
+    // 범례로 색 없이도 구분 가능하게 한다.
+    const tel = { a: null, b: null, metric: 'speed', cache: {}, bound: false, hoverIdx: null };
+    const TEL_PAD = { l: 46, r: 62, t: 12, b: 24 };
+    const TEL_METRICS = {
+        speed: { fmt: v => Math.round(v) + ' km/h', tick: v => String(Math.round(v)) },
+        gap:   { fmt: v => v === 0 ? '리더' : '+' + v.toFixed(3) + '초', tick: v => v < 10 ? v.toFixed(1) : String(Math.round(v)) },
+    };
+
+    function telParseGap(g) {
+        if (g === 'LEADER') return 0;
+        if (typeof g !== 'string') return null;
+        const m = g.match(/^\+(\d+(?:\.\d+)?)$/);
+        return m ? parseFloat(m[1]) : null;      // "+1 LAP" 등 문자열 갭은 결측 처리
+    }
+
+    function telSeries(num, metric) {
+        const key = num + ':' + metric;
+        if (tel.cache[key]) return tel.cache[key];
+        const frames = player.data.frames;
+        const out = new Array(frames.length).fill(null);
+        for (let i = 0; i < frames.length; i++) {
+            const c = frames[i].cars.find(c => c.num === num);
+            if (c) out[i] = metric === 'gap' ? telParseGap(c.gap) : (c.speed ?? null);
+        }
+        return (tel.cache[key] = out);
+    }
+
+    function telInit(data) {
+        const card = document.getElementById('tel-card');
+        if (!data || !data.frames || data.frames.length < 20) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        tel.cache = {}; tel.hoverIdx = null;
+        const order = data.frames[data.frames.length - 1].cars.map(c => c.num);   // 최종 순위순
+        const opt = n => { const d = (data.drivers || {})[String(n)] || {};
+            return `<option value="${n}">${esc(d.acronym || n)} · ${esc(d.team || '')}</option>`; };
+        const selA = document.getElementById('tel-a'), selB = document.getElementById('tel-b');
+        selA.innerHTML = order.map(opt).join('');
+        selB.innerHTML = order.map(opt).join('');
+        tel.a = order[0]; tel.b = order.length > 1 ? order[1] : order[0];
+        selA.value = tel.a; selB.value = tel.b;
+        if (!tel.bound) { telBind(); tel.bound = true; }
+        telDraw();
+    }
+
+    function telPick() {
+        tel.a = parseInt(document.getElementById('tel-a').value, 10);
+        tel.b = parseInt(document.getElementById('tel-b').value, 10);
+        telDraw();
+    }
+
+    function telMetric(m) {
+        tel.metric = m;
+        document.getElementById('tel-m-speed').classList.toggle('active', m === 'speed');
+        document.getElementById('tel-m-gap').classList.toggle('active', m === 'gap');
+        telDraw();
+    }
+
+    function telDraw() {
+        const card = document.getElementById('tel-card');
+        if (card.style.display === 'none' || !player.data) return;
+        const cv = document.getElementById('tel-canvas');
+        const dpr = window.devicePixelRatio || 1;
+        const W = cv.clientWidth, H = cv.clientHeight;
+        if (!W) return;
+        if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+        const ctx = cv.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+
+        const data = player.data, step = data.step || 0.5, n = data.frames.length;
+        const sA = telSeries(tel.a, tel.metric), sB = telSeries(tel.b, tel.metric);
+        const dA = (data.drivers || {})[String(tel.a)] || {}, dB = (data.drivers || {})[String(tel.b)] || {};
+        const colA = '#' + (dA.color || '3671c6');
+        const colB = '#' + (dB.color || 'b6babd');
+        const sameCol = colA.toLowerCase() === colB.toLowerCase();
+
+        document.getElementById('tel-legend').innerHTML =
+            `<span><span class="chip" style="background:${colA}"></span>${esc(dA.acronym || tel.a)}</span>` +
+            `<span><span class="chip" style="background:${colB}"></span>${esc(dB.acronym || tel.b)}${sameCol ? ' (점선)' : ''}</span>`;
+
+        let vmax = 0;
+        for (const s of [sA, sB]) for (const v of s) if (v !== null && v > vmax) vmax = v;
+        if (vmax <= 0) vmax = 1;
+        vmax *= 1.06;
+
+        const px = i => TEL_PAD.l + (W - TEL_PAD.l - TEL_PAD.r) * (i / (n - 1));
+        const py = v => TEL_PAD.t + (H - TEL_PAD.t - TEL_PAD.b) * (1 - v / vmax);
+
+        // 그리드·축 (배경으로 물러나게)
+        ctx.font = '11px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        for (let k = 0; k <= 4; k++) {
+            const v = vmax * k / 4, y = py(v);
+            ctx.strokeStyle = '#26262d'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(TEL_PAD.l, y); ctx.lineTo(W - TEL_PAD.r, y); ctx.stroke();
+            ctx.fillStyle = '#777';
+            ctx.fillText(TEL_METRICS[tel.metric].tick(v), TEL_PAD.l - 8, y);
+        }
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        for (let k = 0; k <= 4; k++) {
+            const i = Math.round((n - 1) * k / 4);
+            ctx.fillStyle = '#777';
+            ctx.fillText(fmtClock(i * step), px(i), H - TEL_PAD.b + 7);
+        }
+
+        // 시리즈 라인 (결측 구간은 끊어서 그린다)
+        const line = (s, col, dash) => {
+            ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash(dash ? [6, 4] : []);
+            ctx.beginPath();
+            let pen = false;
+            for (let i = 0; i < n; i++) {
+                if (s[i] === null) { pen = false; continue; }
+                if (!pen) { ctx.moveTo(px(i), py(s[i])); pen = true; }
+                else ctx.lineTo(px(i), py(s[i]));
+            }
+            ctx.stroke(); ctx.setLineDash([]);
+        };
+        line(sA, colA, false);
+        line(sB, colB, sameCol);
+
+        // 라인 끝 직접 라벨 (색 점 + 잉크색 약칭, 겹치면 위아래로 분리)
+        const lastIdx = s => { let i = n - 1; while (i >= 0 && s[i] === null) i--; return i; };
+        const la = lastIdx(sA), lb = lastIdx(sB);
+        let dyA = 0, dyB = 0;
+        if (la >= 0 && lb >= 0 && Math.abs(py(sA[la]) - py(sB[lb])) < 14) {
+            const aUp = py(sA[la]) <= py(sB[lb]);
+            dyA = aUp ? -7 : 7; dyB = aUp ? 7 : -7;
+        }
+        const label = (s, li, col, acr, dy) => {
+            if (li < 0) return;
+            const x = px(li), y = py(s[li]) + dy;
+            ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + 6, y, 3.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ddd'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(acr, x + 13, y);
+        };
+        label(sA, la, colA, dA.acronym || String(tel.a), dyA);
+        label(sB, lb, colB, dB.acronym || String(tel.b), dyB);
+
+        // 현재 재생 위치
+        const xph = px(player.idx);
+        ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(xph, TEL_PAD.t); ctx.lineTo(xph, H - TEL_PAD.b); ctx.stroke();
+
+        // 호버 크로스헤어 + 값 포인트 (포인트에 배경색 링을 둘러 라인과 분리)
+        if (tel.hoverIdx !== null) {
+            const xi = px(tel.hoverIdx);
+            ctx.strokeStyle = '#666'; ctx.setLineDash([3, 3]);
+            ctx.beginPath(); ctx.moveTo(xi, TEL_PAD.t); ctx.lineTo(xi, H - TEL_PAD.b); ctx.stroke();
+            ctx.setLineDash([]);
+            for (const [s, col] of [[sA, colA], [sB, colB]]) {
+                const v = s[tel.hoverIdx];
+                if (v === null) continue;
+                ctx.fillStyle = col;
+                ctx.beginPath(); ctx.arc(xi, py(v), 4.5, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#17171b'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(xi, py(v), 5.5, 0, Math.PI * 2); ctx.stroke();
+            }
+        }
+    }
+
+    function telFrameAt(clientX) {
+        const cv = document.getElementById('tel-canvas');
+        const rect = cv.getBoundingClientRect();
+        const n = player.data.frames.length;
+        const f = (clientX - rect.left - TEL_PAD.l) / (cv.clientWidth - TEL_PAD.l - TEL_PAD.r) * (n - 1);
+        return Math.max(0, Math.min(n - 1, Math.round(f)));
+    }
+
+    function telBind() {
+        const cv = document.getElementById('tel-canvas');
+        const tip = document.getElementById('tel-tip');
+        cv.addEventListener('mousemove', e => {
+            if (!player.data) return;
+            const i = telFrameAt(e.clientX);
+            tel.hoverIdx = i;
+            const m = TEL_METRICS[tel.metric];
+            const row = num => {
+                const d = (player.data.drivers || {})[String(num)] || {};
+                const v = telSeries(num, tel.metric)[i];
+                return `<div><span class="chip" style="background:#${d.color || '888888'}"></span>${esc(d.acronym || String(num))} ${v === null ? '—' : m.fmt(v)}</div>`;
+            };
+            tip.innerHTML = `<div style="color:#999; margin-bottom:3px;">${fmtClock(i * (player.data.step || 0.5))}</div>` + row(tel.a) + row(tel.b);
+            tip.style.display = '';
+            const wrap = cv.parentElement.getBoundingClientRect();
+            let tx = e.clientX - wrap.left + 14;
+            if (tx > wrap.width - 160) tx = e.clientX - wrap.left - 160;
+            tip.style.left = tx + 'px';
+            tip.style.top = Math.max(0, e.clientY - wrap.top - 10) + 'px';
+            telDraw();
+        });
+        cv.addEventListener('mouseleave', () => { tel.hoverIdx = null; tip.style.display = 'none'; telDraw(); });
+        cv.addEventListener('click', e => { if (player.data) scrubTo(telFrameAt(e.clientX)); });
+        window.addEventListener('resize', () => telDraw());
+    }
+
     function stopReplayPlayer() {
         if (player.timer) { clearInterval(player.timer); player.timer = null; }
         player.data = null; player.playing = false;
+        radioStop();
+        radioMarkersRender();                                       // 마커 비우기
+        document.getElementById('rc-banner').style.display = 'none';
+        document.getElementById('tel-card').style.display = 'none';
     }
 
     async function startReplayPlayer(key) {
@@ -756,6 +1073,9 @@
             const scrub = document.getElementById('scrub');
             scrub.max = data.frames.length - 1;
             scrub.value = 0;
+            radioStop();
+            radioMarkersRender();      // 타임라인에 팀 라디오 마커 표시
+            telInit(data);             // 텔레메트리 비교 차트 준비
             document.getElementById('live-title').innerText = '📼 다시보기 · ' + (data.session || '');
             const st = document.getElementById('ws-status');
             st.innerHTML = '📼 다시보기 재생 중 · ' + (data.session || '');
