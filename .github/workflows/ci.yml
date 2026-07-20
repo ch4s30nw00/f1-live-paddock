@@ -1,0 +1,32 @@
+name: CI
+
+# main에 push하거나 PR을 올릴 때마다 자동으로 pytest를 돌려
+# 코드가 깨지지 않았는지 검증한다. (커밋 옆 초록 체크 ✅ / 빨간 X ❌)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"      # Dockerfile(python:3.13-slim)과 동일 버전
+          cache: pip
+
+      - name: 의존성 설치
+        # 테스트에 필요한 핵심 패키지만 설치한다. fastf1·signalrcore(공식 피드)는
+        # 무겁고 선택 기능이라 뺐다 — server.py가 없으면 try/except로 건너뛰도록 되어 있다.
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn requests websockets pytest httpx
+
+      - name: 테스트 실행
+        run: python -m pytest -v
