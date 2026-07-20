@@ -4,6 +4,7 @@
 섹터 색 판정 같은 '핵심 도메인 로직'이 대상이다.
 """
 import server
+import results   # _fmt_secs·_fmt_gap_res·_rows_*·_gp_complete 는 결과 모듈로 분리됨
 
 
 # --- 갭/인터벌 포맷 (타이밍 보드) -------------------------------------------
@@ -40,32 +41,32 @@ def test_fmt_int_숫자는_소수3자리():
 # --- 시간 포맷 (결과 탭) -----------------------------------------------------
 def test_fmt_secs_분초_표기():
     # 89.708초 = 1분 29.708초
-    assert server._fmt_secs(89.708) == "1:29.708"
+    assert results._fmt_secs(89.708) == "1:29.708"
 
 
 def test_fmt_secs_1분_미만은_초만():
-    assert server._fmt_secs(45.3) == "45.300"
+    assert results._fmt_secs(45.3) == "45.300"
 
 
 def test_fmt_secs_분단위_초는_제로패딩():
     # 1분 5.5초 → 초 부분이 두 자리로 채워져야 한다
-    assert server._fmt_secs(65.5) == "1:05.500"
+    assert results._fmt_secs(65.5) == "1:05.500"
 
 
 def test_fmt_secs_none은_빈문자():
-    assert server._fmt_secs(None) == ""
+    assert results._fmt_secs(None) == ""
 
 
 def test_fmt_secs_문자열은_그대로():
-    assert server._fmt_secs("+1 LAP") == "+1 LAP"
+    assert results._fmt_secs("+1 LAP") == "+1 LAP"
 
 
 def test_fmt_gap_res_0은_대시():
-    assert server._fmt_gap_res(0) == "-"
+    assert results._fmt_gap_res(0) == "-"
 
 
 def test_fmt_gap_res_숫자():
-    assert server._fmt_gap_res(2.75) == "+2.750"
+    assert results._fmt_gap_res(2.75) == "+2.750"
 
 
 # --- 최신 표본 추리기 --------------------------------------------------------
@@ -119,18 +120,18 @@ def test_sector_colors_옐로():
 
 # --- Jolpica 결과 행 포맷 ----------------------------------------------------
 def test_drv_name_이름_합치기():
-    assert server._drv_name({"Driver": {"givenName": "Max", "familyName": "Verstappen"}}) == "Max Verstappen"
+    assert results._drv_name({"Driver": {"givenName": "Max", "familyName": "Verstappen"}}) == "Max Verstappen"
 
 
 def test_rows_race_필드매핑():
-    results = [{
+    payload = [{
         "position": "1", "number": "1", "grid": "2", "laps": "57",
         "points": "25",
         "Driver": {"givenName": "Lando", "familyName": "Norris"},
         "Constructor": {"name": "McLaren"},
         "Time": {"time": "1:30:00.000"},
     }]
-    row = server._rows_race(results)[0]
+    row = results._rows_race(payload)[0]
     assert row["driver"] == "Lando Norris"
     assert row["team"] == "McLaren"
     assert row["points"] == "25"
@@ -139,20 +140,20 @@ def test_rows_race_필드매핑():
 
 def test_rows_race_완주못한경우_status():
     # 완주 시간이 없으면 status(예: 'Accident')로 대체된다
-    results = [{"position": "20", "status": "Accident",
+    payload = [{"position": "20", "status": "Accident",
                 "Driver": {"givenName": "A", "familyName": "B"},
                 "Constructor": {"name": "T"}}]
-    assert server._rows_race(results)[0]["time"] == "Accident"
+    assert results._rows_race(payload)[0]["time"] == "Accident"
 
 
 def test_rows_quali_q1q2q3():
-    results = [{
+    payload = [{
         "position": "1", "number": "16",
         "Driver": {"givenName": "Charles", "familyName": "Leclerc"},
         "Constructor": {"name": "Ferrari"},
         "Q1": "1:20.000", "Q2": "1:19.500", "Q3": "1:19.000",
     }]
-    row = server._rows_quali(results)[0]
+    row = results._rows_quali(payload)[0]
     assert row["q3"] == "1:19.000"
     assert row["driver"] == "Charles Leclerc"
 
@@ -160,19 +161,19 @@ def test_rows_quali_q1q2q3():
 # --- 그랑프리 '완성' 판정 (영구 캐시 조건) ----------------------------------
 def test_gp_complete_2022는_레이스만_있어도_완성():
     detail = {"year": 2022, "sessions": {"race": [{"pos": "1"}]}}
-    assert server._gp_complete(detail) is True
+    assert results._gp_complete(detail) is True
 
 
 def test_gp_complete_2024는_fp1없으면_미완성():
     detail = {"year": 2024, "sessions": {"race": [{"pos": "1"}]}}
-    assert server._gp_complete(detail) is False
+    assert results._gp_complete(detail) is False
 
 
 def test_gp_complete_2024_fp1있으면_완성():
     detail = {"year": 2024, "sessions": {"race": [{"pos": "1"}], "fp1": [{"pos": "1"}]}}
-    assert server._gp_complete(detail) is True
+    assert results._gp_complete(detail) is True
 
 
 def test_gp_complete_레이스없으면_미완성():
     detail = {"year": 2022, "sessions": {}}
-    assert server._gp_complete(detail) is False
+    assert results._gp_complete(detail) is False
