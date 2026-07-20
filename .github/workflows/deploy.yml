@@ -12,10 +12,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # secrets 는 if 조건에서 직접 못 쓴다 → env 로 옮겨 놓고 아래 step에서 검사
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
     steps:
       - name: SSH로 VM에 접속해 재배포
         # 시크릿이 아직 등록되지 않았으면 조용히 건너뛴다 (VM 셋업 전 push 대비)
-        if: ${{ secrets.VM_HOST != '' }}
+        if: ${{ env.VM_HOST != '' }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VM_HOST }}
